@@ -1,23 +1,22 @@
-import { useReducer } from 'react';
+import { useReducer, useEffect } from 'react';
 
-// Initial state configuration for layout dimensions and interactions
-const initialState = {
-  leftSidebarWidth: 18,    // Width in percentage
-  rightSidebarWidth: 18,   // Width in percentage
-  topDivHeight: 120,       // Height in pixels
-  bottomDivHeight: 60,     // Height in pixels
-  isResizingTop: false,    // Tracks top div resize state
-  isResizingBottom: false, // Tracks bottom div resize state
-  activeDataset: null      // Currently displayed dataset
+// Function to calculate initial dimensions based on screen size
+const getInitialDimensions = () => {
+  const isMobile = window.innerWidth <= 768;
+  const isLandscape = window.innerWidth > window.innerHeight;
+
+  return {
+    leftSidebarWidth: isMobile ? (isLandscape ? 15 : 0) : 18,    // Width in percentage
+    rightSidebarWidth: isMobile ? (isLandscape ? 15 : 0) : 18,   // Width in percentage
+    topDivHeight: isMobile ? 80 : 120,       // Height in pixels
+    bottomDivHeight: isMobile ? 40 : 60,     // Height in pixels
+    isResizingTop: false,
+    isResizingBottom: false,
+    activeDataset: null
+  };
 };
 
-/* IMPROVEMENT SUGGESTIONS:
- * 1. Add min/max constraints as constants
- * 2. Consider adding responsive breakpoints
- * 3. Add transition states for smooth animations
- * 4. Implement localStorage persistence for user preferences
- * 5. Add resize history for undo/redo functionality
- */
+const initialState = getInitialDimensions();
 
 const layoutReducer = (state, action) => {
   switch (action.type) {
@@ -26,56 +25,74 @@ const layoutReducer = (state, action) => {
         ...state,
         [`isResizing${action.direction}`]: true
       };
-    case 'END_RESIZE':
-      // Reset all resize states to prevent stuck states
+    case 'STOP_RESIZE':
       return {
         ...state,
-        isResizingTop: false,
-        isResizingBottom: false
+        [`isResizing${action.direction}`]: false
+      };
+    case 'UPDATE_WIDTH':
+      return {
+        ...state,
+        [`${action.side}SidebarWidth`]: action.width
       };
     case 'UPDATE_HEIGHT':
-      // Ensure height stays within acceptable range
       return {
         ...state,
-        [`${action.direction}DivHeight`]: Math.max(40, action.height)
+        [`${action.direction}DivHeight`]: action.height
       };
-    case 'SET_DATASET':
+    case 'SET_ACTIVE_DATASET':
       return {
         ...state,
         activeDataset: action.dataset
+      };
+    case 'RESIZE_FOR_SCREEN':
+      return {
+        ...state,
+        ...getInitialDimensions()
       };
     default:
       return state;
   }
 };
 
-/* IMPROVEMENT SUGGESTIONS:
- * 1. Add error boundaries for invalid state updates
- * 2. Implement state validation middleware
- * 3. Add debug logging in development mode
- * 4. Consider adding state compression for complex datasets
- */
-
-export const useLayoutState = () => {
+const useLayoutState = () => {
   const [state, dispatch] = useReducer(layoutReducer, initialState);
-  
-  // Centralized resize handler to maintain consistent behavior
-  const handleResize = (e, direction) => {
+
+  const handleResize = (direction, e) => {
     if (direction === 'top') {
-      // Calculate new height within constraints for top div
-      const newHeight = Math.min(Math.max(80, e.clientY), 200);
+      const maxHeight = window.innerHeight * 0.3; // 30% of viewport height
+      const minHeight = window.innerWidth <= 768 ? 60 : 80;
+      const newHeight = Math.min(Math.max(minHeight, e.clientY), maxHeight);
       dispatch({ type: 'UPDATE_HEIGHT', direction: 'top', height: newHeight });
     } else if (direction === 'bottom') {
-      // Calculate new height within constraints for bottom div
       const windowHeight = window.innerHeight;
-      const newHeight = Math.min(Math.max(40, windowHeight - e.clientY), 120);
+      const minHeight = window.innerWidth <= 768 ? 30 : 40;
+      const maxHeight = window.innerWidth <= 768 ? 80 : 120;
+      const newHeight = Math.min(Math.max(minHeight, windowHeight - e.clientY), maxHeight);
       dispatch({ type: 'UPDATE_HEIGHT', direction: 'bottom', height: newHeight });
     }
   };
+
+  // Add window resize listener
+  useEffect(() => {
+    const handleWindowResize = () => {
+      dispatch({ type: 'RESIZE_FOR_SCREEN' });
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+    window.addEventListener('orientationchange', handleWindowResize);
+
+    return () => {
+      window.removeEventListener('resize', handleWindowResize);
+      window.removeEventListener('orientationchange', handleWindowResize);
+    };
+  }, []);
 
   return { 
     state, 
     dispatch,
     handleResize
   };
-}; 
+};
+
+export default useLayoutState;

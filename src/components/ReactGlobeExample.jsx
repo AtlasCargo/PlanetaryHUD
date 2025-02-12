@@ -40,17 +40,27 @@ export default function ReactGlobeExample() {
 
   // Initialize top and bottom panel heights with 60px (as a percentage of window height)
   const initialPanelHeight = typeof window !== 'undefined' ? (60 / window.innerHeight) * 100 : 10;
-  const [dimensions, setDimensions] = useState({
-    left: 20,
-    right: 20,
-    top: initialPanelHeight,
-    bottom: initialPanelHeight
+  const [dimensions, setDimensions] = useState(() => {
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+    const isLandscape = typeof window !== 'undefined' && window.innerWidth > window.innerHeight;
+    return {
+      left: isMobile ? (isLandscape ? 15 : 0) : 20,
+      right: isMobile ? (isLandscape ? 15 : 0) : 20,
+      top: isMobile ? 10 : initialPanelHeight,
+      bottom: isMobile ? 8 : initialPanelHeight
+    };
   });
   const [isResizing, setIsResizing] = useState({
     left: false,
     right: false,
     top: false,
     bottom: false
+  });
+
+  // Update width calculations for sidebars to use consistent units
+  const [sidebarWidths, setSidebarWidths] = useState({
+    left: window.innerWidth <= 768 ? (window.innerWidth > window.innerHeight ? 15 : 80) : 20,
+    right: window.innerWidth <= 768 ? (window.innerWidth > window.innerHeight ? 15 : 80) : 20
   });
 
   // UI and performance states
@@ -69,7 +79,7 @@ export default function ReactGlobeExample() {
   const [showGraticules, setShowGraticules] = useState(false);
   const [showAtmosphere, setShowAtmosphere] = useState(true);
   const [globeTextureType, setGlobeTextureType] = useState('night');
-  const [lowPowerMode, setLowPowerMode] = useState(true);
+  const [lowPowerMode, setLowPowerMode] = useState(false);
   const [isGlobeReady, setIsGlobeReady] = useState(false);
   // NEW: Cache preloaded population data
   const [populationData, setPopulationData] = useState(null);
@@ -86,8 +96,9 @@ export default function ReactGlobeExample() {
 
   // The left/right containers always use the same width (from dimensions) regardless of collapse state.
   // (When collapsed, their internal content is hidden/replaced by a toggle button.)
-  const leftPanelWidth = `${dimensions.left}%`;
-  const rightPanelWidth = `${dimensions.right}%`;
+  const sidebarBaseWidth = window.innerWidth <= 768 ? '80' : '20';
+  const leftPanelWidth = leftHidden ? '0' : `${sidebarBaseWidth}%`;
+  const rightPanelWidth = rightHidden ? '0' : `${sidebarBaseWidth}%`;
 
   // -------------------------------
   // REFS for custom auto‑rotation (throttled to chosen FPS)
@@ -121,7 +132,7 @@ export default function ReactGlobeExample() {
   const [selectedPopulationYear, setSelectedPopulationYear] = useState(null);
 
   // Rename state variable for clarity
-  const [globeOpacity, setGlobeOpacity] = useState(0.5); // Default to semi-transparent
+  const [globeOpacity, setGlobeOpacity] = useState(1); // Default to opaque
 
   // Add state for texture visibility
   const [showGlobeTexture, setShowGlobeTexture] = useState(true);
@@ -238,20 +249,20 @@ export default function ReactGlobeExample() {
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (isResizing.left) {
-        const newWidth = (e.clientX / window.innerWidth) * 100;
-        setDimensions((d) => ({ ...d, left: Math.max(15, Math.min(newWidth, 30)) }));
+        const newWidth = Math.max(15, Math.min((e.clientX / window.innerWidth) * 100, 40));
+        setSidebarWidths(prev => ({ ...prev, left: newWidth }));
       }
       if (isResizing.right) {
-        const newWidth = 100 - (e.clientX / window.innerWidth) * 100;
-        setDimensions((d) => ({ ...d, right: Math.max(15, Math.min(newWidth, 30)) }));
+        const newWidth = Math.max(15, Math.min(((window.innerWidth - e.clientX) / window.innerWidth) * 100, 40));
+        setSidebarWidths(prev => ({ ...prev, right: newWidth }));
       }
       if (isResizing.top) {
         const newTop = (e.clientY / window.innerHeight) * 100;
-        setDimensions((d) => ({ ...d, top: newTop }));
+        setDimensions(d => ({ ...d, top: Math.max(5, Math.min(newTop, 30)) }));
       }
       if (isResizing.bottom) {
-        const newBottom = 100 - (e.clientY / window.innerHeight) * 100;
-        setDimensions((d) => ({ ...d, bottom: newBottom }));
+        const newBottom = ((window.innerHeight - e.clientY) / window.innerHeight) * 100;
+        setDimensions(d => ({ ...d, bottom: Math.max(5, Math.min(newBottom, 20)) }));
       }
     };
 
@@ -492,20 +503,63 @@ export default function ReactGlobeExample() {
     console.log('DEBUG: updateFPS (fpsLimit) value:', updateFPS);
   }, [updateFPS]);
 
+  // Add window resize handler
+  useEffect(() => {
+    const handleResize = () => {
+      const isMobile = window.innerWidth <= 768;
+      const isLandscape = window.innerWidth > window.innerHeight;
+
+      setSidebarWidths({
+        left: isMobile ? (isLandscape ? 15 : 80) : 20,
+        right: isMobile ? (isLandscape ? 15 : 80) : 20
+      });
+
+      // Update dimensions based on screen orientation and size
+      setDimensions(prev => ({
+        ...prev,
+        left: isMobile ? (isLandscape ? 15 : 0) : 20,
+        right: isMobile ? (isLandscape ? 15 : 0) : 20,
+        top: isMobile ? 10 : prev.top,
+        bottom: isMobile ? 8 : prev.bottom,
+      }));
+
+      // Auto-hide sidebars in portrait mode
+      if (isMobile && !isLandscape) {
+        setLeftHidden(true);
+        setRightHidden(true);
+      } else if (isMobile && isLandscape) {
+        // Show sidebars in landscape if they were hidden due to portrait mode
+        setLeftHidden(false);
+        setRightHidden(false);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', () => {
+      setTimeout(handleResize, 100);
+    });
+    handleResize(); // Initial call
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
+
+  // Compute mobile-aware sidebar widths
+  const getSidebarWidth = () => {
+    const isMobile = window.innerWidth <= 768;
+    const isLandscape = window.innerWidth > window.innerHeight;
+    if (isMobile) {
+      return isLandscape ? '15vw' : '80vw';
+    }
+    return '20vw';
+  };
+
   // -------------------------------
   // RENDER: Main component UI.
   // -------------------------------
   return (
-    <div
-      className="relative flex w-screen h-screen text-gray-100 overflow-hidden font-sciFi"
-      style={{
-        backgroundImage: `url('https://t4.ftcdn.net/jpg/02/43/75/73/360_F_243757367_gBpS6R5c8DB7pL5gw9gi9KXlzFfbdZOA.jpg')`,
-        backgroundSize: '622px',
-        backgroundPosition: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0.95)',
-        backgroundBlendMode: 'hard-light'
-      }}
-    >
+    <div className="relative flex w-screen h-screen text-gray-100 overflow-hidden font-sciFi bg-black">
       <ParticlesBackground 
         show={showParticles} 
         opacity={particlesOpacity} 
@@ -514,23 +568,25 @@ export default function ReactGlobeExample() {
       {/* TOP HUD PANEL */}
       <div
         style={{
-          height: `${dimensions.top}vh`,
-          minHeight: '0px',
-          left: `${dimensions.left}%`,
-          right: `${dimensions.right}%`
+          height: `${Math.min(dimensions.top, 30)}vh`,
+          minHeight: '40px',
+          left: !leftHidden ? `${sidebarWidths.left}vw` : '0',
+          right: !rightHidden ? `${sidebarWidths.right}vw` : '0',
+          margin: '0 5px'
         }}
         className={`absolute top-0 ${glowEnabled
           ? 'bg-gradient-to-b from-neon-blue/10 to-transparent border-b border-neon-blue/50'
-          : 'bg-gray-900 border-b border-gray-600 bg-opacity-5'} flex items-center justify-center z-10 backdrop-blur-lg rounded-lg`}
+          : 'bg-gray-900/50 border-b border-gray-600'} 
+          flex items-center justify-center z-10 backdrop-blur-lg rounded-lg
+          transition-all duration-300`}
       >
-        <h1 className={`text-6xl font-bold tracking-widest ${glowEnabled
-          ? 'bg-gradient-to-r from-green-400 to-blue-400 bg-clip-text text-transparent'
-          : 'text-green-700'} relative`}
+        <h1 className={`text-2xl sm:text-4xl md:text-6xl font-bold tracking-widest ${
+          glowEnabled
+            ? 'bg-gradient-to-r from-green-400 to-blue-400 bg-clip-text text-transparent'
+            : 'text-green-700'
+          } relative px-2 text-center`}
         >
           PLANETARY HUD
-          {glowEnabled && (
-            <span className="absolute inset-0 bg-gradient-to-r from-green-400 to-blue-400 blur-2xl opacity-40 pointer-events-none" />
-          )}
         </h1>
         <div
           className="resize-handle-vertical"
@@ -540,19 +596,36 @@ export default function ReactGlobeExample() {
       </div>
 
       {/* LEFT SIDEBAR */}
-      <div className="relative h-full" style={{ width: leftPanelWidth, overflowY: 'auto' }}>
+      <div 
+        className={`fixed top-0 left-0 h-full z-30 
+          ${leftHidden ? '-translate-x-full' : 'translate-x-0'}
+          backdrop-blur-lg rounded-r-lg overflow-hidden`}
+        style={{ 
+          width: `${sidebarWidths.left}vw`,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          transition: isResizing.left ? 'none' : 'transform 0.3s ease-in-out'
+        }}
+      >
         <div className="relative h-full" style={{ userSelect: isResizing.left ? 'none' : 'auto' }}>
           { !leftHidden && (
             <>
               {/* Header with collapse toggle */}
               <div 
-                className="flex justify-between items-center cursor-pointer p-2" 
+                className={`flex justify-between items-center cursor-pointer p-2 ${
+                  glowEnabled 
+                    ? 'bg-gradient-to-r from-black/50 to-transparent border-b border-neon-blue/30' 
+                    : 'bg-black/30 border-b border-gray-600'
+                }`}
                 onClick={() => setLeftHidden(true)}
               >
-                <h2 className="text-2xl font-bold bg-gradient-to-r from-green-800 to-blue-500 bg-clip-text text-transparent">
+                <h2 className={`text-2xl font-bold ${
+                  glowEnabled 
+                    ? 'bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent' 
+                    : 'text-gray-400'
+                }`}>
                   SYSTEM STATS
                 </h2>
-                <span className="text-xl">–</span>
+                <span className={`text-xl ${glowEnabled ? 'text-neon-blue' : 'text-gray-400'}`}>–</span>
               </div>
 
               {/* Left panel content */}
@@ -674,16 +747,14 @@ export default function ReactGlobeExample() {
               </div>
               {/* Resize handle for left sidebar */}
               <div
-                className="resize-handle"
+                className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-neon-blue/30 z-50"
                 style={{
-                  position: 'absolute',
-                  top: 0,
-                  right: '-6px',
-                  bottom: 0,
-                  width: '12px',
-                  cursor: 'ew-resize'
+                  transform: 'translateX(50%)',
                 }}
-                onMouseDown={() => setIsResizing({ ...isResizing, left: true })}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setIsResizing(prev => ({ ...prev, left: true }));
+                }}
               />
             </>
           )}
@@ -694,14 +765,16 @@ export default function ReactGlobeExample() {
       { leftHidden && (
         <button
           onClick={() => setLeftHidden(false)}
-          className="fixed left-0 top-1/2 -translate-y-1/2 bg-gray-800 p-2 rounded-r-md shadow-lg hover:bg-gray-700 transition-colors z-50"
+          className="fixed left-1 top-1/2 -translate-y-1/2 bg-gray-800/90 p-2 sm:p-3 
+            rounded-r-md shadow-lg hover:bg-gray-700 transition-colors z-40
+            border border-neon-blue/30"
         >
           &gt;
         </button>
       )}
 
       {/* CENTER CONTAINER */}
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center px-2 sm:px-4">
         {activeDataset ? (
           <div className="relative h-full w-full">
             <motion.div className="planetary-hub" animate={{ opacity: showGraph ? 0.3 : 1 }}>
@@ -713,10 +786,9 @@ export default function ReactGlobeExample() {
           </div>
         ) : (
           <div
-            className="relative"
+            className="relative w-full md:w-[800px] aspect-square"
             style={{
-              width: '800px',
-              aspectRatio: '1/1',
+              maxWidth: '95vmin',
               opacity: globeOpacity,
               transition: 'opacity 0.3s ease'
             }}
@@ -730,44 +802,55 @@ export default function ReactGlobeExample() {
                 backgroundColor="rgba(0,0,0,0)"
                 fpsLimit={updateFPS}
                 polygonsData={countries.features.length ? countries.features.filter(feat => feat.properties.ISO_A2 !== 'AQ') : []}
-                polygonAltitude={(d) => (d === hoverD ? 0.0245 : 0.009)}
+                polygonAltitude={0.01}
                 polygonCapColor={(d) => {
                   if (activeGlobeDataset === 'life-expectancy-2023') {
-                    if (d && d.properties && d.properties.ADMIN) {
+                    if (d?.properties?.ADMIN) {
                       const countryName = d.properties.ADMIN.trim().toLowerCase();
                       const countryData = lifeExpData.find(item => item.entity.toLowerCase() === countryName);
-                      if (countryData && countryData.lifeExpectancy) {
+                      if (countryData?.lifeExpectancy) {
                         const scale = scaleSequentialSqrt(interpolateRdYlGn).domain([60, 85]);
-                        return scale(countryData.lifeExpectancy);
+                        const baseColor = scale(countryData.lifeExpectancy);
+                        return baseColor.replace(/rgb\(/, 'rgba(').replace(/\)/, ',0.7)');
                       }
-                      return '#888';
                     }
-                    return '#888';
+                    return 'rgba(200,200,200,0.01)';
                   } 
-                  else if (activeGlobeDataset === 'population') {
-                    if (d && d.properties && d.properties.ADMIN) {
+                  
+                  if (activeGlobeDataset === 'population') {
+                    if (d?.properties?.ADMIN) {
                       const countryName = d.properties.ADMIN.trim().toLowerCase();
-                      const countryData = populationData && populationData.find(item => 
+                      const countryData = populationData?.find(item => 
                         item.entity.toLowerCase() === countryName && 
                         item.year === selectedPopulationYear
                       );
-                      if (countryData && countryData.population) {
+                      if (countryData?.population) {
                         const scale = scaleSequentialSqrt(interpolateGreys).domain([1e6, 1.5e9]);
-                        return scale(countryData.population);
+                        const baseColor = scale(countryData.population);
+                        return baseColor.replace(/rgb\(/, 'rgba(').replace(/\)/, ',0.7)');
                       }
-                      return '#888';
                     }
-                    return '#888';
+                    return 'rgba(200,200,200,0.01)';
                   }
-                  return 'transparent';
+
+                  return 'rgba(200,200,200,0.01)';
                 }}
-                polygonSideColor={() => 'rgba(150,150,150,0.1)'}
-                polygonStrokeColor={() => 'rgba(57,255,20,0.8)'}
+                polygonSideColor={(d) => {
+                  if (d === hoverD) {
+                    return 'rgba(57,255,20,0.8)';
+                  }
+                  return 'rgba(150,150,150,0.01)';
+                }}
+                polygonStrokeColor={(d) => {
+                  if (d === hoverD) {
+                    return 'rgba(57,255,20,1)';
+                  }
+                  // When a country is hovered, make other borders very dim
+                  return hoverD ? 'rgba(57,255,20,0.1)' : 'rgba(57,255,20,0.3)';
+                }}
                 onPolygonHover={handleHover}
                 showGraticules={showGraticules}
                 showAtmosphere={showAtmosphere}
-                atmosphereColor={showAtmosphere ? "lightskyblue" : "transparent"}
-                atmosphereAltitude={0.15}
                 onGlobeReady={onGlobeReady}
                 showTexture={showGlobeTexture}
               />
@@ -826,20 +909,24 @@ export default function ReactGlobeExample() {
       {/* BOTTOM HUD PANEL */}
       <div
         style={{
-          height: `${dimensions.bottom}vh`,
-          minHeight: '0px',
-          left: `${dimensions.left}%`,
-          right: `${dimensions.right}%`
+          height: `${Math.min(dimensions.bottom, 15)}vh`,
+          minHeight: '30px',
+          left: !leftHidden ? `${sidebarWidths.left}vw` : '0',
+          right: !rightHidden ? `${sidebarWidths.right}vw` : '0',
+          margin: '0 5px',
+          bottom: '5px'
         }}
-        className={`absolute bottom-0 z-20 ${glowEnabled
-          ? 'bg-gray-800 border-t border-neon-red/50 bg-opacity-5'
-          : 'bg-gray-900 border-t border-gray-600 bg-opacity-5'} flex items-center justify-center backdrop-blur-lg rounded-lg`}
+        className={`fixed z-20 ${
+          glowEnabled
+            ? 'bg-gray-800/30 border-t border-neon-red/50'
+            : 'bg-gray-900/50 border-t border-gray-600'
+        } flex items-center justify-center backdrop-blur-lg rounded-lg transition-all duration-300`}
       >
-        <div className="text-xl flex gap-8">
-          <span className="relative z-10 text-orange-900">⚠️ CRITICAL SYSTEMS:</span>
-          <span className="relative z-10 text-red-900">I. THERMAL RUNAWAY</span>
-          <span className="relative z-10 text-red-900">II. BIOSPHERE COLLAPSE</span>
-          <span className="relative z-10 text-red-900">III. RESOURCE DEPLETION</span>
+        <div className="text-xs sm:text-sm md:text-xl flex flex-wrap gap-1 sm:gap-2 md:gap-8 p-1 sm:p-2 justify-center">
+          <span className="relative z-10 text-orange-900">⚠️ CRITICAL:</span>
+          <span className="relative z-10 text-red-900">THERMAL</span>
+          <span className="relative z-10 text-red-900">BIOSPHERE</span>
+          <span className="relative z-10 text-red-900">RESOURCES</span>
         </div>
         <div className="resize-handle-vertical" 
           style={{
@@ -855,16 +942,36 @@ export default function ReactGlobeExample() {
       </div>
 
       {/* RIGHT SIDEBAR */}
-      <div className="relative h-full" style={{ width: rightPanelWidth }}>
+      <div 
+        className={`fixed top-0 right-0 h-full z-30 
+          ${rightHidden ? 'translate-x-full' : 'translate-x-0'}
+          backdrop-blur-lg rounded-l-lg overflow-hidden`}
+        style={{ 
+          width: `${sidebarWidths.right}vw`,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          transition: isResizing.right ? 'none' : 'transform 0.3s ease-in-out'
+        }}
+      >
         <div className="relative h-full" style={{ userSelect: isResizing.right ? 'none' : 'auto' }}>
           { !rightHidden && (
             <>
               {/* Header with collapse toggle */}
-              <div className="flex justify-between items-center cursor-pointer p-2" onClick={() => setRightHidden(true)}>
-                <h2 className="text-2xl font-bold bg-gradient-to-r from-green-800 to-blue-500 bg-clip-text text-transparent">
+              <div 
+                className={`flex justify-between items-center cursor-pointer p-2 ${
+                  glowEnabled 
+                    ? 'bg-gradient-to-l from-black/50 to-transparent border-b border-neon-blue/30' 
+                    : 'bg-black/30 border-b border-gray-600'
+                }`}
+                onClick={() => setRightHidden(true)}
+              >
+                <h2 className={`text-2xl font-bold ${
+                  glowEnabled 
+                    ? 'bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent' 
+                    : 'text-gray-400'
+                }`}>
                   MISSION CONTROL
                 </h2>
-                <span className="text-xl">–</span>
+                <span className={`text-xl ${glowEnabled ? 'text-neon-blue' : 'text-gray-400'}`}>–</span>
               </div>
               {/* Right panel content */}
               <div className="p-6 space-y-6">
@@ -900,16 +1007,14 @@ export default function ReactGlobeExample() {
                 ))}
               </motion.div>
               {/* Resize handle for right sidebar */}
-              <div className="resize-handle" 
+              <div className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-neon-blue/30 z-50"
                 style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: '-6px',
-                  bottom: 0,
-                  width: '12px',
-                  cursor: 'ew-resize'
+                  transform: 'translateX(-50%)',
                 }}
-                onMouseDown={() => setIsResizing({ ...isResizing, right: true })}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setIsResizing(prev => ({ ...prev, right: true }));
+                }}
               />
             </>
           )}
@@ -917,40 +1022,51 @@ export default function ReactGlobeExample() {
         </div>
       </div>
       { rightHidden && (
-        <div
-          className="absolute inset-y-0 right-0 flex items-center justify-center"
-          style={{ width: rightPanelWidth, transform: 'translateX(41%)' }}
+        <button
+          onClick={() => setRightHidden(false)}
+          className="fixed right-1 top-1/2 -translate-y-1/2 bg-gray-800/90 p-2 sm:p-3 
+            rounded-l-md shadow-lg hover:bg-gray-700 transition-colors z-40
+            border border-neon-blue/30"
         >
-          <button
-            onClick={() => setRightHidden(false)}
-            className="bg-gray-800 p-2 rounded-l-md text-white focus:outline-none"
-          >
-            &lt;
-          </button>
-        </div>
+          &lt;
+        </button>
       )}
 
       <GlowOverlay enabled={glowEnabled} />
 
       {/* GEAR SETTINGS DROPDOWN */}
       <div className="fixed top-4 right-4 z-[9999]">
-        <motion.button onClick={() => setShowSettings(!showSettings)}
+        <motion.button 
+          onClick={() => setShowSettings(!showSettings)}
           className={`p-1 rounded-full hover:bg-gray-900/20 backdrop-blur-lg transition-all ${glowEnabled ? '' : 'text-gray-400'}`}
         >
-          <svg className="w-8 h-8" style={{ stroke: glowEnabled ? '#00f3ff' : '#94a3b8' }}
-            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}
+          <svg 
+            className="w-6 h-6 sm:w-8 sm:h-8" 
+            style={{ stroke: glowEnabled ? '#00f3ff' : '#94a3b8' }}
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor" 
+            strokeWidth={1.5}
           >
-            <path strokeLinecap="round" strokeLinejoin="round"
+            <path 
+              strokeLinecap="round" 
+              strokeLinejoin="round"
               d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
             />
-            <path strokeLinecap="round" strokeLinejoin="round"
+            <path 
+              strokeLinecap="round" 
+              strokeLinejoin="round"
               d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
             />
           </svg>
         </motion.button>
+
         {showSettings && (
           <Portal>
-            <div className={`fixed top-[3.5rem] right-4 w-64 ${glowEnabled ? 'border border-neon-blue/50' : 'border border-gray-600'} bg-gray-900/95 rounded-lg shadow-2xl backdrop-blur-xl p-4 z-[99999]`}
+            <div 
+              className={`fixed top-[3.5rem] right-4 w-64 max-w-[90vw] ${
+                glowEnabled ? 'border border-neon-blue/50' : 'border border-gray-600'
+              } bg-gray-900/95 rounded-lg shadow-2xl backdrop-blur-xl p-4 z-[99999]`}
               style={{ maxHeight: '80vh', overflowY: 'auto' }}
             >
               <div className="space-y-4">
@@ -1115,16 +1231,22 @@ export default function ReactGlobeExample() {
                   </label>
                 </div>
                 {/* Globe Appearance Options */}
-                <motion.div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <motion.div 
+                  className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20" 
+                  initial={{ opacity: 0 }} 
+                  animate={{ opacity: 1 }}
+                >
                   <h4 className="text-xl font-bold mb-4">Globe Appearance</h4>
                   <div className="grid grid-cols-2 gap-4">
-                    <motion.button whileHover={{ scale: 1.05 }}
+                    <motion.button 
+                      whileHover={{ scale: 1.05 }}
                       className={`p-2 rounded-lg ${globeTextureType === 'day' ? 'bg-neon-blue/20 text-neon-blue' : 'bg-gray-800/40 text-gray-300'}`}
                       onClick={() => setGlobeTextureType('day')}
                     >
                       🌍 Day Mode
                     </motion.button>
-                    <motion.button whileHover={{ scale: 1.05 }}
+                    <motion.button 
+                      whileHover={{ scale: 1.05 }}
                       className={`p-2 rounded-lg ${globeTextureType === 'night' ? 'bg-neon-purple/20 text-neon-purple' : 'bg-gray-800/40 text-gray-300'}`}
                       onClick={() => setGlobeTextureType('night')}
                     >
@@ -1137,6 +1259,7 @@ export default function ReactGlobeExample() {
           </Portal>
         )}
       </div>
+      
     </div>
   );
 }
