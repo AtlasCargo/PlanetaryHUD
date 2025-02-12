@@ -599,33 +599,33 @@ export default function ReactGlobeExample() {
       <div 
         className={`fixed top-0 left-0 h-full z-30 
           ${leftHidden ? '-translate-x-full' : 'translate-x-0'}
-          backdrop-blur-lg rounded-r-lg overflow-hidden`}
+          backdrop-blur-lg rounded-r-lg`}
         style={{ 
           width: `${sidebarWidths.left}vw`,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
           transition: isResizing.left ? 'none' : 'transform 0.3s ease-in-out'
         }}
       >
-        <div className="relative h-full" style={{ userSelect: isResizing.left ? 'none' : 'auto' }}>
+        <div className="relative h-full overflow-y-auto" style={{ userSelect: isResizing.left ? 'none' : 'auto' }}>
           { !leftHidden && (
             <>
-              {/* Header with collapse toggle */}
+              {/* Header with glow effects */}
               <div 
-                className={`flex justify-between items-center cursor-pointer p-2 ${
-                  glowEnabled 
-                    ? 'bg-gradient-to-r from-black/50 to-transparent border-b border-neon-blue/30' 
-                    : 'bg-black/30 border-b border-gray-600'
-                }`}
+                className={`flex justify-between items-center cursor-pointer p-2`}
                 onClick={() => setLeftHidden(true)}
+                style={{
+                  background: glowEnabled ? 'linear-gradient(to right, rgba(0, 0, 0, 0.5), transparent)' : 'rgba(0, 0, 0, 0.3)',
+                  borderBottom: glowEnabled ? '1px solid rgba(0, 230, 255, 0.3)' : '1px solid rgba(128, 128, 128, 0.3)'
+                }}
               >
                 <h2 className={`text-2xl font-bold ${
                   glowEnabled 
-                    ? 'bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent' 
+                    ? 'text-white glow-text' 
                     : 'text-gray-400'
                 }`}>
                   SYSTEM STATS
                 </h2>
-                <span className={`text-xl ${glowEnabled ? 'text-neon-blue' : 'text-gray-400'}`}>–</span>
+                <span className={`text-xl ${glowEnabled ? 'text-neon-blue glow-text' : 'text-gray-400'}`}>–</span>
               </div>
 
               {/* Left panel content */}
@@ -745,6 +745,7 @@ export default function ReactGlobeExample() {
                   </button>
                 </div>
               </div>
+              
               {/* Resize handle for left sidebar */}
               <div
                 className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-neon-blue/30 z-50"
@@ -758,6 +759,7 @@ export default function ReactGlobeExample() {
               />
             </>
           )}
+          { !leftHidden && <ScannerEffect show={showScanner} glowIntensity={glowIntensity} /> }
         </div>
       </div>
 
@@ -774,14 +776,28 @@ export default function ReactGlobeExample() {
       )}
 
       {/* CENTER CONTAINER */}
-      <div className="flex-1 flex items-center justify-center px-2 sm:px-4">
+      <div className="flex-1 flex items-center justify-center px-2 sm:px-4"
+        style={{
+          marginLeft: !leftHidden ? `${sidebarWidths.left}vw` : '0',
+          marginRight: !rightHidden ? `${sidebarWidths.right}vw` : '0',
+          transition: 'margin 0.3s ease-in-out'
+        }}
+      >
         {activeDataset ? (
           <div className="relative h-full w-full">
             <motion.div className="planetary-hub" animate={{ opacity: showGraph ? 0.3 : 1 }}>
               {/* Additional hub content */}
             </motion.div>
             {showGraph && (
-              <GraphComponent dataset={activeDataset} onClose={() => { setShowGraph(false); setActiveDataset(null); }} />
+              <GraphComponent 
+                dataset={activeDataset} 
+                onClose={() => { 
+                  setShowGraph(false); 
+                  setActiveDataset(null); 
+                }}
+                leftMargin={!leftHidden ? `${sidebarWidths.left}vw` : '0'}
+                rightMargin={!rightHidden ? `${sidebarWidths.right}vw` : '0'}
+              />
             )}
           </div>
         ) : (
@@ -945,33 +961,33 @@ export default function ReactGlobeExample() {
       <div 
         className={`fixed top-0 right-0 h-full z-30 
           ${rightHidden ? 'translate-x-full' : 'translate-x-0'}
-          backdrop-blur-lg rounded-l-lg overflow-hidden`}
+          backdrop-blur-lg rounded-l-lg`}
         style={{ 
           width: `${sidebarWidths.right}vw`,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
           transition: isResizing.right ? 'none' : 'transform 0.3s ease-in-out'
         }}
       >
-        <div className="relative h-full" style={{ userSelect: isResizing.right ? 'none' : 'auto' }}>
+        <div className="relative h-full overflow-y-auto" style={{ userSelect: isResizing.right ? 'none' : 'auto' }}>
           { !rightHidden && (
             <>
               {/* Header with collapse toggle */}
               <div 
-                className={`flex justify-between items-center cursor-pointer p-2 ${
-                  glowEnabled 
-                    ? 'bg-gradient-to-l from-black/50 to-transparent border-b border-neon-blue/30' 
-                    : 'bg-black/30 border-b border-gray-600'
-                }`}
+                className={`flex justify-between items-center cursor-pointer p-2`}
                 onClick={() => setRightHidden(true)}
+                style={{
+                  background: glowEnabled ? 'linear-gradient(to left, rgba(0, 0, 0, 0.5), transparent)' : 'rgba(0, 0, 0, 0.3)',
+                  borderBottom: glowEnabled ? '1px solid rgba(0, 230, 255, 0.3)' : '1px solid rgba(128, 128, 128, 0.3)'
+                }}
               >
                 <h2 className={`text-2xl font-bold ${
                   glowEnabled 
-                    ? 'bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent' 
+                    ? 'text-white glow-text' 
                     : 'text-gray-400'
                 }`}>
                   MISSION CONTROL
                 </h2>
-                <span className={`text-xl ${glowEnabled ? 'text-neon-blue' : 'text-gray-400'}`}>–</span>
+                <span className={`text-xl ${glowEnabled ? 'text-neon-blue glow-text' : 'text-gray-400'}`}>–</span>
               </div>
               {/* Right panel content */}
               <div className="p-6 space-y-6">
