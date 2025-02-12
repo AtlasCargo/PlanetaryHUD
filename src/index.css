@@ -560,7 +560,7 @@ body:has(.resize-handle-vertical.resizing) {
   z-index: 0;
   background-image: url('./img/bg_stars.png');
   background-repeat: repeat;
-  background-size: 622px 360px/* Set to exact image dimensions */
+  background-size: 622px 360px; /* Set to exact image dimensions */
   opacity: 0;
   transition: opacity 0.3s ease;
   pointer-events: none;
