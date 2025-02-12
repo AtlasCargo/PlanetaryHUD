@@ -140,6 +140,9 @@ export default function ReactGlobeExample() {
   // Add state for tooltip position
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
 
+  // Add state for star background
+  const [showStarBackground, setShowStarBackground] = useState(true);
+
   // -------------------------------
   // CUSTOM AUTO ROTATION FUNCTIONS
   // -------------------------------
@@ -564,6 +567,7 @@ export default function ReactGlobeExample() {
         show={showParticles} 
         opacity={particlesOpacity} 
       />
+      <div className={`star-background ${showStarBackground ? 'visible' : ''}`} />
 
       {/* TOP HUD PANEL */}
       <div
@@ -1086,6 +1090,19 @@ export default function ReactGlobeExample() {
               style={{ maxHeight: '80vh', overflowY: 'auto' }}
             >
               <div className="space-y-4">
+                {/* Star Background Toggle - Adding as first option */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-neon-blue">Star Background</span>
+                  <label className="switch">
+                    <input 
+                      type="checkbox" 
+                      checked={showStarBackground} 
+                      onChange={(e) => setShowStarBackground(e.target.checked)} 
+                    />
+                    <span className="slider round"></span>
+                  </label>
+                </div>
+
                 {/* Glow Effects Toggle */}
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-neon-blue">Glow Effects</span>

@@ -550,3 +550,27 @@ body:has(.resize-handle-vertical.resizing) {
   opacity: 0.3 !important;
 }
 
+.star-background {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 200vw; /* Wider than viewport to prevent seams during transform */
+  height: 200vh;
+  transform: translate(-50%, -50%); /* Center the oversized background */
+  z-index: 0;
+  background-image: url('./img/bg_stars.png');
+  background-repeat: repeat;
+  background-size: 622px 360px/* Set to exact image dimensions */
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  backface-visibility: hidden; /* Prevent seams during transform */
+  transform-style: preserve-3d; /* Help with rendering */
+  image-rendering: -webkit-optimize-contrast; /* Sharper image edges */
+  image-rendering: crisp-edges; /* Prevent anti-aliasing at edges */
+}
+
+.star-background.visible {
+  opacity: 0.2;
+}
+
