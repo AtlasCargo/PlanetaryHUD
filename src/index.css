@@ -246,3 +246,204 @@ input[type="range"]::-webkit-slider-thumb {
     linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px);
   background-size: 24px 24px;
 }
+
+.planetary-hub-top {
+  position: absolute;
+  top: 0;
+  width: 100%;
+  z-index: 10;
+}
+
+.graph-container {
+  position: relative;
+  z-index: 5;
+  height: calc(100vh - 120px); /* Adjust based on your header/footer */
+}
+
+.planetary-hub-bottom {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
+}
+
+.neon-button {
+  @apply px-6 py-3 bg-black text-neon-cyan border-2 border-neon-cyan rounded-lg 
+         hover:bg-neon-cyan/10 transition-all duration-300;
+}
+
+.blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* Top Header Styling */
+.top-header {
+  height: 6rem;
+  background: rgba(0, 0, 0, 0.8);
+  border-bottom: 1px solid rgba(0, 255, 255, 0.3);
+}
+
+.glow-static {
+  animation: text-glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes text-glow {
+  from { text-shadow: 0 0 10px #00ffff; }
+  to { text-shadow: 0 0 20px #00ffff, 0 0 30px #00ffff; }
+}
+
+/* Z-index Management */
+.z-50 {
+  z-index: 50;
+}
+
+/* Main Content Area */
+.main-content {
+  padding-top: 6rem; /* Match header height */
+  height: calc(100vh - 6rem - 3rem); /* Account for header and footer */
+}
+
+.error-overlay {
+  position: fixed;
+  top: 6rem; /* Below header */
+  left: 0;
+  right: 0;
+  bottom: 3rem; /* Above footer */
+  background: rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.error-content {
+  text-align: center;
+  padding: 2rem;
+  border: 2px solid #ff0000;
+  border-radius: 0.5rem;
+  background: linear-gradient(
+    to bottom right,
+    rgba(255, 0, 0, 0.1),
+    rgba(0, 0, 0, 0.8)
+  );
+}
+
+.neon-button {
+  padding: 1rem 2rem;
+  background: #000;
+  border: 2px solid #00ffff;
+  color: #00ffff;
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.neon-button:hover {
+  background: rgba(0, 255, 255, 0.1);
+  box-shadow: 0 0 15px #00ffff;
+}
+
+.glow {
+  animation: text-glow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes text-glow {
+  from { text-shadow: 0 0 5px #00ffff; }
+  to { text-shadow: 0 0 20px #00ffff, 0 0 30px #00ffff; }
+}
+
+.neon-button.active {
+  background: rgba(0, 255, 255, 0.2);
+  box-shadow: 0 0 15px #00ffff;
+}
+
+.cursor-nwse-resize {
+  cursor: nwse-resize;
+}
+
+/* Resize Handle Base Styles */
+.resize-handle,
+.resize-handle-vertical {
+  position: absolute;
+  background: transparent;
+  z-index: 1000;
+  transition: background-color 0.2s ease;
+}
+
+.resize-handle {
+  width: 12px;
+  cursor: col-resize;
+  top: 0;
+  bottom: 0;
+}
+
+.resize-handle-vertical {
+  height: 12px;
+  cursor: row-resize;
+  left: 0;
+  right: 0;
+}
+
+/* Interactive States */
+.resize-handle:hover,
+.resize-handle-vertical:hover {
+  background-color: rgba(0, 230, 255, 0.15);
+}
+
+.resizing {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.resizing .resize-handle,
+.resizing .resize-handle-vertical {
+  background-color: rgba(0, 230, 255, 0.3) !important;
+}
+
+/* Add to existing CSS */
+body:has(.resize-handle-vertical.resizing) {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: row-resize !important;
+}
+
+.resize-handle-vertical.resizing {
+  pointer-events: none;
+}
+
+/* Prevent text selection during vertical resize */
+.resizing-vertical {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: row-resize;
+}
+
+.resize-handle-vertical {
+  pointer-events: auto !important;
+}
+
+.vertical-resizing {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  cursor: row-resize !important;
+}
+
+.vertical-resizing * {
+  pointer-events: none;
+}
+
+/* Add hover effect for polygons */
+.polygon-hover {
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.polygon-hover:hover {
+  filter: brightness(1.2);
+  opacity: 0.3 !important;
+}
+
