@@ -23,12 +23,14 @@ import ScannerEffect from './Effects/ScannerEffect';
 import GlowOverlay from './Effects/GlowOverlay';
 import Portal from './Portal';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import GraphComponent from './GraphComponent';
 import Globe from './Globe';  // Import our new Globe component
 import { scaleSequentialSqrt } from 'd3-scale';
 import { interpolateYlOrRd, interpolateRdYlGn, interpolateGreys } from 'd3-scale-chromatic';
 import { csvParse } from 'd3-dsv';
-import loadDataset from '../utils/loadDataset';
+//import loadDataset from '../utils/loadDataset';
+import { loadDataset, getAvailableDatasets } from '../utils/loadDataset';
 
 export default function ReactGlobeExample() {
   // -------------------------------
@@ -114,7 +116,7 @@ export default function ReactGlobeExample() {
   const [selectedGlobeDataset, setSelectedGlobeDataset] = useState('life-expectancy-2023');
 
   // NEW: Added for the new globe view logic
-  const [showGlobeView, setShowGlobeView] = useState(false);
+  const [showGlobeView, setShowGlobeView] = useState(true);
   const [activeGlobeDataset, setActiveGlobeDataset] = useState(null);
 
   // NEW: Store the life expectancy CSV data for 2023.
@@ -127,9 +129,17 @@ export default function ReactGlobeExample() {
   // NEW: State flag to trigger the test: highlight Germany in red.
   const [highlightGermany, setHighlightGermany] = useState(false);
 
-  // NEW: State for population dataset years and selected year
+  // State for dataset years and selected year
   const [populationYears, setPopulationYears] = useState([]);
   const [selectedPopulationYear, setSelectedPopulationYear] = useState(null);
+  
+  // Add state for life expectancy years
+  const [lifeExpYears, setLifeExpYears] = useState([]);
+  const [selectedLifeExpYear, setSelectedLifeExpYear] = useState(null);
+  
+  // Add state for country/region selection
+  const [availableRegions, setAvailableRegions] = useState(['World']);
+  const [selectedRegion, setSelectedRegion] = useState('World');
 
   // Rename state variable for clarity
   const [globeOpacity, setGlobeOpacity] = useState(1); // Default to opaque
@@ -140,8 +150,13 @@ export default function ReactGlobeExample() {
   // Add state for tooltip position
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
 
-  // Add state for star background
-  const [showStarBackground, setShowStarBackground] = useState(true);
+  // Add new state for available datasets
+  const [availableDatasets, setAvailableDatasets] = useState([]);
+  const [isLoadingDatasets, setIsLoadingDatasets] = useState(false);
+
+  // Add loading states
+  const [isLoadingGlobeData, setIsLoadingGlobeData] = useState(false);
+  const [globeDataError, setGlobeDataError] = useState(null);
 
   // -------------------------------
   // CUSTOM AUTO ROTATION FUNCTIONS
@@ -418,37 +433,61 @@ export default function ReactGlobeExample() {
           console.error("No column matching 'life expectancy' found in CSV.");
           return;
         }
-        // Define aggregates to skip (regional or grouped data)
-        const aggregates = new Set([
-          "World", "Africa", "Asia", "Europe", "Americas", "Oceania",
+        // Extract all entities including regions
+        const allEntities = [...new Set(parsed.map(d => d.Entity.trim()))];
+        
+        // Identify regions and continents
+        const regions = [
+          "World", "Africa", "Asia", "Europe", "Americas", "North America", "South America", "Oceania",
           "European Union", "High income", "Low income", "Upper middle income", "Lower middle income"
-        ]);
-        // Filter out aggregate rows
-        let filteredData = parsed.filter(d => !aggregates.has(d.Entity.trim()));
+        ].filter(r => allEntities.includes(r));
         
-        // Log available years in the dataset for debugging purposes
+        // Update available regions
+        setAvailableRegions(['World', ...regions.filter(r => r !== 'World'), ...allEntities.filter(e => !regions.includes(e)).sort()]);
+        
+        // Don't filter out regions anymore, we'll use them
+        let filteredData = parsed;
+        
+        // Get available years and sort them
         const availableYears = [...new Set(filteredData.map(d => +d.Year).filter(year => !isNaN(year)))];
-        console.log('Available years:', availableYears);
+        availableYears.sort((a, b) => a - b);
+        console.log('Available years for life expectancy:', availableYears);
+        setLifeExpYears(availableYears);
         
-        // Set target year as 2023
-        const targetYear = 2023;
-        let yearFiltered = filteredData.filter(d => +d.Year === targetYear);
-        if (yearFiltered.length > 0) {
-          filteredData = yearFiltered;
+        // Select earliest year available to show historical data (default to 1950 if available)
+        const defaultYear = availableYears.find(y => y >= 1950) || availableYears[0];
+        setSelectedLifeExpYear(defaultYear);
+        
+        // Filter to the selected year
+        const yearFiltered = filteredData.filter(d => +d.Year === defaultYear);
+        
+        // For the globe view, we need country-level data
+        let result;
+        if (selectedRegion === 'World' || regions.includes(selectedRegion)) {
+          // If a region is selected, show all countries (for the globe)
+          result = yearFiltered
+            .filter(d => !regions.includes(d.Entity.trim())) // only countries for the globe
+            .map(d => ({
+              entity: d.Entity.trim(),
+              year: +d.Year,
+              value: +d[lifeExpKey],
+              isCountry: true
+            }))
+            .filter(d => !isNaN(d.value));
         } else {
-          // If no data for 2023, fallback to the maximum available year
-          const maxYear = Math.max(...filteredData.map(d => +d.Year));
-          filteredData = filteredData.filter(d => +d.Year === maxYear);
-          console.log(`No data for ${targetYear} found, falling back to ${maxYear}`);
+          // If a specific country is selected, only show that country
+          result = yearFiltered
+            .filter(d => d.Entity.trim() === selectedRegion)
+            .map(d => ({
+              entity: d.Entity.trim(),
+              year: +d.Year,
+              value: +d[lifeExpKey],
+              isCountry: true
+            }))
+            .filter(d => !isNaN(d.value));
         }
         
-        // Map the data to only include entity and life expectancy, filtering out any NaN values.
-        const result = filteredData.map(d => ({
-          entity: d.Entity.trim(),
-          lifeExpectancy: +d[lifeExpKey]
-        })).filter(d => !isNaN(d.lifeExpectancy));
-        
-        console.log('Filtered life expectancy data:', result);
+        console.log(`Filtered life expectancy data for year ${defaultYear}:`, result.slice(0, 5));
         setLifeExpData(result);
       })
       .catch(err => console.error('Error loading life expectancy CSV:', err));
@@ -548,6 +587,140 @@ export default function ReactGlobeExample() {
     };
   }, []);
 
+  // Add effect to update life expectancy data when year or region changes
+  useEffect(() => {
+    if ((!selectedLifeExpYear || lifeExpYears.length === 0) && activeGlobeDataset === 'life-expectancy') return;
+    if (activeGlobeDataset !== 'life-expectancy') return;
+    
+    // Fetch full life expectancy data for the selected year
+    fetch('https://ourworldindata.org/grapher/life-expectancy.csv')
+      .then(res => res.text())
+      .then(csvText => {
+        const parsed = csvParse(csvText);
+        if (!parsed.length) return;
+        
+        // Find life expectancy column
+        const lifeExpKey = Object.keys(parsed[0]).find(key => 
+          key.toLowerCase().includes('life expectancy')
+        );
+        if (!lifeExpKey) return;
+        
+        // Extract all entities for regions list
+        const allEntities = [...new Set(parsed.map(d => d.Entity.trim()))];
+        
+        // Identify regions
+        const regions = [
+          "World", "Africa", "Asia", "Europe", "Americas", "North America", "South America", "Oceania",
+          "European Union", "High income", "Low income", "Upper middle income", "Lower middle income"
+        ].filter(r => allEntities.includes(r));
+        
+        // Get data based on selected region and year
+        let filteredData;
+        
+        if (selectedRegion === 'World' || regions.includes(selectedRegion)) {
+          // For globe view, we need country data (not regions)
+          if (activeGlobeDataset === 'life-expectancy') {
+            filteredData = parsed
+              .filter(d => !regions.includes(d.Entity.trim()) && +d.Year === selectedLifeExpYear)
+              .map(d => ({
+                entity: d.Entity.trim(),
+                year: +d.Year,
+                value: +d[lifeExpKey]
+              }))
+              .filter(d => !isNaN(d.value) && d.value > 0);
+          } else {
+            // For graph view of a region
+            filteredData = parsed
+              .filter(d => d.Entity.trim() === selectedRegion && +d.Year >= 1950)
+              .map(d => ({
+                entity: d.Entity.trim(),
+                year: +d.Year,
+                value: +d[lifeExpKey]
+              }))
+              .filter(d => !isNaN(d.value) && d.value > 0)
+              .sort((a, b) => a.year - b.year);
+          }
+        } else {
+          // Specific country is selected
+          filteredData = parsed
+            .filter(d => d.Entity.trim() === selectedRegion && 
+                     (+d.Year === selectedLifeExpYear || !activeGlobeDataset || activeGlobeDataset !== 'life-expectancy'))
+            .map(d => ({
+              entity: d.Entity.trim(),
+              year: +d.Year,
+              value: +d[lifeExpKey]
+            }))
+            .filter(d => !isNaN(d.value) && d.value > 0)
+            .sort((a, b) => a.year - b.year);
+        }
+        
+        console.log(`Filtered life expectancy data for ${selectedRegion}, year ${selectedLifeExpYear}:`, 
+                   filteredData.slice(0, 5));
+        setLifeExpData(filteredData);
+      })
+      .catch(err => console.error('Error updating life expectancy data:', err));
+  }, [selectedLifeExpYear, selectedRegion, activeGlobeDataset]);
+  
+  // Add effect to update population data when year or region changes
+  useEffect(() => {
+    if ((!selectedPopulationYear || populationYears.length === 0) && activeGlobeDataset === 'population') return;
+    if (activeGlobeDataset !== 'population') return;
+    
+    // Fetch full population data for the selected year
+    fetch('https://ourworldindata.org/grapher/population.csv')
+      .then(res => res.text())
+      .then(csvText => {
+        const parsed = csvParse(csvText);
+        if (!parsed.length) return;
+        
+        // Find the population column
+        const popKey = Object.keys(parsed[0]).find(key => 
+          key.toLowerCase().includes('population') && !key.toLowerCase().includes('density')
+        );
+        if (!popKey) return;
+        
+        // Extract all entities for regions list
+        const allEntities = [...new Set(parsed.map(d => d.Entity.trim()))];
+        
+        // Identify regions
+        const regions = [
+          "World", "Africa", "Asia", "Europe", "Americas", "North America", "South America", "Oceania",
+          "European Union", "High income", "Low income", "Upper middle income", "Lower middle income"
+        ].filter(r => allEntities.includes(r));
+        
+        // Get data based on selected region and year
+        let filteredData;
+        
+        if (selectedRegion === 'World' || regions.includes(selectedRegion)) {
+          // For globe view, we need country data (not regions)
+          filteredData = parsed
+            .filter(d => !regions.includes(d.Entity.trim()) && +d.Year === selectedPopulationYear)
+            .map(d => ({
+              entity: d.Entity.trim(),
+              year: +d.Year,
+              value: +d[popKey]
+            }))
+            .filter(d => !isNaN(d.value) && d.value > 0);
+        } else {
+          // Specific country is selected
+          filteredData = parsed
+            .filter(d => d.Entity.trim() === selectedRegion)
+            .map(d => ({
+              entity: d.Entity.trim(),
+              year: +d.Year,
+              value: +d[popKey]
+            }))
+            .filter(d => !isNaN(d.value) && d.value > 0)
+            .sort((a, b) => a.year - b.year);
+        }
+        
+        console.log(`Filtered population data for ${selectedRegion}, year ${selectedPopulationYear}:`, 
+                   filteredData.slice(0, 5));
+        setPopulationData(filteredData);
+      })
+      .catch(err => console.error('Error updating population data:', err));
+  }, [selectedPopulationYear, selectedRegion, activeGlobeDataset]);
+
   // Compute mobile-aware sidebar widths
   const getSidebarWidth = () => {
     const isMobile = window.innerWidth <= 768;
@@ -558,6 +731,138 @@ export default function ReactGlobeExample() {
     return '20vw';
   };
 
+  // Add effect to fetch available datasets
+  useEffect(() => {
+    const fetchDatasets = async () => {
+      setIsLoadingDatasets(true);
+      try {
+        const datasets = await getAvailableDatasets();
+        setAvailableDatasets(datasets);
+      } catch (error) {
+        console.error('Error fetching datasets:', error);
+      }
+      setIsLoadingDatasets(false);
+    };
+    
+    fetchDatasets();
+  }, []);
+
+  // Effect to handle globe data loading
+  useEffect(() => {
+    if (!activeGlobeDataset) return;
+
+    const loadGlobeData = async () => {
+      try {
+        console.log("Loading globe data for:", activeGlobeDataset);
+        const data = await loadDataset(activeGlobeDataset);
+        
+        if (activeGlobeDataset === 'life-expectancy') {
+          setLifeExpData(data);
+        } else if (activeGlobeDataset === 'population') {
+          setPopulationData(data);
+          if (data && data.length > 0) {
+            const years = [...new Set(data.map(d => d.year))];
+            setPopulationYears(years);
+            setSelectedPopulationYear(Math.max(...years));
+          }
+        }
+      } catch (error) {
+        console.error('Error loading globe data:', error);
+      }
+    };
+
+    loadGlobeData();
+  }, [activeGlobeDataset]);
+
+  // Function to handle dataset selection and display
+  const handleDatasetSelect = async (datasetId, displayType = 'graph') => {
+    console.log("handleDatasetSelect called with:", { datasetId, displayType });
+    const dataset = availableDatasets.find(d => d.id === datasetId);
+    setSelectedDataset(datasetId);
+    
+    if (displayType === 'globe') {
+      setIsLoadingGlobeData(true);
+      setGlobeDataError(null);
+      try {
+        const data = await loadDataset(datasetId);
+        console.log("Loaded data for globe:", data?.slice(0, 5));
+        
+        if (datasetId === 'population') {
+          setPopulationData(data);
+          const years = [...new Set(data.map(d => d.year))];
+          setPopulationYears(years);
+          setSelectedPopulationYear(Math.max(...years));
+          setShowGlobe(true);
+          setActiveGlobeDataset('population');
+        } else if (datasetId === 'life-expectancy') {
+          setLifeExpData(data);
+          setShowGlobe(true);
+          setActiveGlobeDataset('life-expectancy');
+        }
+        
+        setShowGraph(false);
+        setActiveDataset(null);
+        
+      } catch (error) {
+        console.error('Error loading globe data:', error);
+        setGlobeDataError(error.message);
+      } finally {
+        setIsLoadingGlobeData(false);
+      }
+    } else {
+      // Store selected region in window for GraphComponent to access
+      window.selectedRegion = selectedRegion;
+      window.d3 = { csvParse };  // Pass csvParse to window for GraphComponent
+      
+      setActiveDataset(dataset);
+      setShowGraph(true);
+      // Don't hide the globe, just show the graph overlay
+      // setShowGlobe(false);
+      // setActiveGlobeDataset(null);
+    }
+  };
+
+  // Unified dataset selector component
+  const renderDatasetSelector = () => (
+    <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20">
+      <h3 className="text-sm font-bold text-neon-blue mb-2">Available Datasets</h3>
+      {isLoadingDatasets ? (
+        <div className="text-neon-blue">Loading datasets...</div>
+      ) : (
+        <>
+          <select
+            className="w-full p-2 rounded bg-gray-800 text-neon-blue border border-neon-blue/20"
+            value={selectedDataset}
+            onChange={(e) => setSelectedDataset(e.target.value)}
+          >
+            <option value="">Select a dataset</option>
+            {availableDatasets.map(dataset => (
+              <option key={dataset.id} value={dataset.id}>
+                {dataset.title}
+              </option>
+            ))}
+          </select>
+          <div className="flex gap-2 mt-2">
+            <button
+              className="flex-1 p-2 bg-neon-blue text-black rounded hover:bg-neon-blue/80 transition-colors"
+              onClick={() => selectedDataset && handleDatasetSelect(selectedDataset, 'graph')}
+              disabled={!selectedDataset}
+            >
+              Show Graph
+            </button>
+            <button
+              className="flex-1 p-2 bg-neon-purple text-black rounded hover:bg-neon-purple/80 transition-colors"
+              onClick={() => selectedDataset && handleDatasetSelect(selectedDataset, 'globe')}
+              disabled={!selectedDataset}
+            >
+              Show on Globe
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   // -------------------------------
   // RENDER: Main component UI.
   // -------------------------------
@@ -567,7 +872,6 @@ export default function ReactGlobeExample() {
         show={showParticles} 
         opacity={particlesOpacity} 
       />
-      <div className={`star-background ${showStarBackground ? 'visible' : ''}`} />
 
       {/* TOP HUD PANEL */}
       <div
@@ -635,54 +939,7 @@ export default function ReactGlobeExample() {
               {/* Left panel content */}
               <div className="p-6 space-y-6">
                 {/* Unified panel for dataset selection */}
-                <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20">
-                  <h3 className="text-sm font-bold text-neon-blue mb-2">Display Dataset on Globe</h3>
-                  {/* Dropdown to select dataset; unified state 'selectedGlobeDataset' controls which dataset to display */}
-                  <label className="block text-xs text-neon-blue mb-1">Select Dataset:</label>
-                  <select
-                    value={selectedGlobeDataset}
-                    onChange={(e) => setSelectedGlobeDataset(e.target.value)}
-                    className="w-full p-2 rounded bg-gray-800 text-neon-blue border border-neon-blue/20"
-                  >
-                    <option value="life-expectancy-2023">Life Expectancy (2023)</option>
-                    <option value="population">Population</option>
-                  </select>
-                  {/* If 'Population' is selected, show an additional dropdown for year selection, using state 'selectedPopulationYear' */}
-                  {selectedGlobeDataset === 'population' && (
-                    <div className="mt-2">
-                      <label className="block text-xs text-neon-blue mb-1">Select Year:</label>
-                      <select
-                        value={selectedPopulationYear || ''}
-                        onChange={(e) => setSelectedPopulationYear(+e.target.value)}
-                        className="w-full p-2 rounded bg-gray-800 text-neon-blue border border-neon-blue/20"
-                      >
-                        {populationYears.map(year => (
-                          <option key={year} value={year}>{year}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  {/* Button to apply the selected dataset on the Globe view; updates 'activeGlobeDataset' and shows the globe view */}
-                  <button
-                    className="mt-2 w-full p-2 bg-neon-blue text-black rounded hover:bg-neon-blue/80 transition-colors"
-                    onClick={() => {
-                      setActiveGlobeDataset(selectedGlobeDataset);
-                      setShowGlobeView(true);
-                    }}
-                  >
-                    Apply Dataset on Globe
-                  </button>
-                  {/* Button to reset the Globe display */}
-                  <button
-                    className="mt-2 w-full p-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                    onClick={() => {
-                      setActiveGlobeDataset(null);
-                      setShowGlobeView(false);
-                    }}
-                  >
-                    Reset Globe Display
-                  </button>
-                </div>
+                {renderDatasetSelector()}
 
                 {/* Dominant Species Panel */}
                 <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 hover:border-neon-blue/50 transition-all">
@@ -722,32 +979,6 @@ export default function ReactGlobeExample() {
                     </div>
                   </div>
                 </div>
-
-                {/* More Stats or Other Data Section */}
-                <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20">
-                  <h3 className="text-sm font-bold text-neon-blue mb-2">More Stats or Other Data</h3>
-                  <select
-                    className="bg-transparent text-neon-blue w-full p-2 rounded-lg border border-neon-blue/20 appearance-none"
-                    value={selectedDataset}
-                    onChange={(e) => setSelectedDataset(e.target.value)}
-                  >
-                    <option value="" disabled>Select a dataset</option>
-                    {/* Both Population and Life Expectancy options added */}
-                    <option value="population">Population</option>
-                    <option value="life-expectancy">Life Expectancy</option>
-                  </select>
-                  <button
-                    className="mt-2 w-full p-2 bg-neon-blue text-black rounded hover:bg-neon-blue/80 transition-colors"
-                    onClick={() => {
-                      if (selectedDataset) {
-                        setActiveDataset({ id: selectedDataset });
-                        setShowGraph(true);
-                      }
-                    }}
-                  >
-                    Display
-                  </button>
-                </div>
               </div>
               
               {/* Resize handle for left sidebar */}
@@ -780,30 +1011,26 @@ export default function ReactGlobeExample() {
       )}
 
       {/* CENTER CONTAINER */}
-      <div className="flex-1 flex items-center justify-center px-2 sm:px-4"
+      <div className="flex-1 flex items-center justify-center"
         style={{
           marginLeft: !leftHidden ? `${sidebarWidths.left}vw` : '0',
           marginRight: !rightHidden ? `${sidebarWidths.right}vw` : '0',
           transition: 'margin 0.3s ease-in-out'
         }}
       >
-        {activeDataset ? (
-          <div className="relative h-full w-full">
-            <motion.div className="planetary-hub" animate={{ opacity: showGraph ? 0.3 : 1 }}>
-              {/* Additional hub content */}
-            </motion.div>
-            {showGraph && (
-              <GraphComponent 
-                dataset={activeDataset} 
-                onClose={() => { 
-                  setShowGraph(false); 
-                  setActiveDataset(null); 
-                }}
-                leftMargin={!leftHidden ? `${sidebarWidths.left}vw` : '0'}
-                rightMargin={!rightHidden ? `${sidebarWidths.right}vw` : '0'}
-              />
-            )}
-          </div>
+        {showGraph && activeDataset ? (
+          <GraphComponent 
+            dataset={activeDataset}
+            onClose={() => {
+              setShowGraph(false);
+              setActiveDataset(null);
+              setSelectedDataset("");
+              // Make sure the globe is visible when graph is closed
+              setShowGlobe(true);
+            }}
+            leftMargin={!leftHidden ? `${sidebarWidths.left}vw` : '0'}
+            rightMargin={!rightHidden ? `${sidebarWidths.right}vw` : '0'}
+          />
         ) : (
           <div
             className="relative w-full md:w-[800px] aspect-square"
@@ -815,65 +1042,64 @@ export default function ReactGlobeExample() {
           >
             {showGlobe && (
               <Globe
-                key={`globe-${showGlobeTexture}-${updateFPS}`}
+                key={`globe-${showGlobeTexture}-${updateFPS}-${activeGlobeDataset}`}
                 width={800}
                 height={800}
                 globeMaterial={computedGlobeMaterial}
                 backgroundColor="rgba(0,0,0,0)"
                 fpsLimit={updateFPS}
-                polygonsData={countries.features.length ? countries.features.filter(feat => feat.properties.ISO_A2 !== 'AQ') : []}
-                polygonAltitude={0.01}
+                polygonsData={countries.features.filter(feat => feat.properties.ISO_A2 !== 'AQ')}
+                polygonAltitude={d => d === hoverD ? 0.15 : 0.1}
                 polygonCapColor={(d) => {
-                  if (activeGlobeDataset === 'life-expectancy-2023') {
-                    if (d?.properties?.ADMIN) {
-                      const countryName = d.properties.ADMIN.trim().toLowerCase();
-                      const countryData = lifeExpData.find(item => item.entity.toLowerCase() === countryName);
-                      if (countryData?.lifeExpectancy) {
-                        const scale = scaleSequentialSqrt(interpolateRdYlGn).domain([60, 85]);
-                        const baseColor = scale(countryData.lifeExpectancy);
-                        return baseColor.replace(/rgb\(/, 'rgba(').replace(/\)/, ',0.7)');
-                      }
+                  if (!d?.properties?.ADMIN) return 'rgba(200,200,200,0.01)';
+                  
+                  const countryName = d.properties.ADMIN.trim().toLowerCase();
+                  
+                  if (activeGlobeDataset === 'life-expectancy' && lifeExpData?.length) {
+                    const countryData = lifeExpData.find(item => 
+                      item.entity.toLowerCase() === countryName
+                    );
+                    if (countryData?.value) {
+                      // Green is high life expectancy, red is low (reverse the color scale)
+                      const scale = scaleSequentialSqrt(interpolateRdYlGn).domain([45, 85]);
+                      const baseColor = scale(countryData.value);
+                      console.log(`${countryName}: ${countryData.value} -> ${baseColor}`);
+                      return baseColor.replace(/rgb\(/, 'rgba(').replace(/\)/, ',0.7)');
                     }
-                    return 'rgba(200,200,200,0.01)';
                   } 
                   
-                  if (activeGlobeDataset === 'population') {
-                    if (d?.properties?.ADMIN) {
-                      const countryName = d.properties.ADMIN.trim().toLowerCase();
-                      const countryData = populationData?.find(item => 
-                        item.entity.toLowerCase() === countryName && 
-                        item.year === selectedPopulationYear
-                      );
-                      if (countryData?.population) {
-                        const scale = scaleSequentialSqrt(interpolateGreys).domain([1e6, 1.5e9]);
-                        const baseColor = scale(countryData.population);
-                        return baseColor.replace(/rgb\(/, 'rgba(').replace(/\)/, ',0.7)');
-                      }
+                  if (activeGlobeDataset === 'population' && populationData?.length) {
+                    const countryData = populationData.find(item => 
+                      item.entity.toLowerCase() === countryName && 
+                      item.year === selectedPopulationYear
+                    );
+                    if (countryData?.value) {
+                      const scale = scaleSequentialSqrt(interpolateGreys).domain([1e6, 1.5e9]);
+                      const baseColor = scale(countryData.value);
+                      return baseColor.replace(/rgb\(/, 'rgba(').replace(/\)/, ',0.7)');
                     }
-                    return 'rgba(200,200,200,0.01)';
                   }
-
+                  
                   return 'rgba(200,200,200,0.01)';
                 }}
-                polygonSideColor={(d) => {
-                  if (d === hoverD) {
-                    return 'rgba(57,255,20,0.8)';
-                  }
-                  return 'rgba(150,150,150,0.01)';
-                }}
-                polygonStrokeColor={(d) => {
-                  if (d === hoverD) {
-                    return 'rgba(57,255,20,1)';
-                  }
-                  // When a country is hovered, make other borders very dim
-                  return hoverD ? 'rgba(57,255,20,0.1)' : 'rgba(57,255,20,0.3)';
-                }}
+                polygonSideColor={() => 'rgba(150,150,150,0.1)'}
+                polygonStrokeColor={(d) => d === hoverD ? 'rgba(57,255,20,1)' : 'rgba(57,255,20,0.3)'}
                 onPolygonHover={handleHover}
                 showGraticules={showGraticules}
                 showAtmosphere={showAtmosphere}
                 onGlobeReady={onGlobeReady}
                 showTexture={showGlobeTexture}
               />
+            )}
+            {isLoadingGlobeData && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                <div className="text-neon-blue">Loading data...</div>
+              </div>
+            )}
+            {globeDataError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                <div className="text-neon-red">Error: {globeDataError}</div>
+              </div>
             )}
           </div>
         )}
@@ -899,12 +1125,12 @@ export default function ReactGlobeExample() {
           }}
         >
           <div className="font-bold text-lg">{hoverD.properties.ADMIN}</div>
-          {activeGlobeDataset === 'life-expectancy-2023' && (
+          {activeGlobeDataset === 'life-expectancy' && (
             <div className="text-sm text-gray-300">
               Life Expectancy: {
                 lifeExpData.find(item => 
                   item.entity.toLowerCase() === hoverD.properties.ADMIN.toLowerCase()
-                )?.lifeExpectancy?.toFixed(1) || 'N/A'
+                )?.value?.toFixed(1) || 'N/A'
               } years
             </div>
           )}
@@ -915,13 +1141,97 @@ export default function ReactGlobeExample() {
                   populationData?.find(item => 
                     item.entity.toLowerCase() === hoverD.properties.ADMIN.toLowerCase() && 
                     item.year === selectedPopulationYear
-                  )?.population || 'N/A'
+                  )?.value || 'N/A'
                 )
               }
             </div>
           )}
           <div className="text-xs text-gray-400 mt-1">
             Region: {hoverD.properties.REGION_WB || hoverD.properties.CONTINENT || 'N/A'}
+          </div>
+        </div>
+      )}
+
+      {/* Controls for data visualization - only show when not in graph mode */}
+      {!showGraph && activeGlobeDataset === 'life-expectancy' && lifeExpYears.length > 0 && (
+        <div 
+          className="fixed bottom-24 left-1/2 transform -translate-x-1/2 z-50 
+                    bg-gray-900/80 backdrop-blur-md p-3 rounded-lg border border-neon-blue/30"
+          style={{ width: '350px' }}
+        >
+          {/* Region selector dropdown */}
+          <div className="mb-2">
+            <label className="text-neon-blue text-xs block mb-1">Region/Country:</label>
+            <select 
+              value={selectedRegion} 
+              onChange={(e) => setSelectedRegion(e.target.value)}
+              className="w-full p-1 bg-gray-800 text-neon-blue border border-neon-blue/20 rounded text-xs"
+              style={{ maxHeight: '200px' }}
+            >
+              {availableRegions.map(region => (
+                <option key={region} value={region}>{region}</option>
+              ))}
+            </select>
+          </div>
+          
+          {/* Year slider */}
+          <div className="flex justify-between mb-1">
+            <span className="text-neon-blue text-xs">Year: {selectedLifeExpYear}</span>
+            <span className="text-neon-blue text-xs">Life Expectancy</span>
+          </div>
+          <input 
+            type="range" 
+            min={Math.min(...lifeExpYears)} 
+            max={Math.max(...lifeExpYears)} 
+            value={selectedLifeExpYear} 
+            onChange={(e) => setSelectedLifeExpYear(+e.target.value)}
+            step="1"
+            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+          />
+          <div className="flex justify-between text-xs text-gray-400 mt-1">
+            <span>{Math.min(...lifeExpYears)}</span>
+            <span>{Math.max(...lifeExpYears)}</span>
+          </div>
+        </div>
+      )}
+      
+      {!showGraph && activeGlobeDataset === 'population' && populationYears.length > 0 && (
+        <div 
+          className="fixed bottom-24 left-1/2 transform -translate-x-1/2 z-50 
+                    bg-gray-900/80 backdrop-blur-md p-3 rounded-lg border border-neon-blue/30"
+          style={{ width: '350px' }}
+        >
+          {/* Region selector dropdown */}
+          <div className="mb-2">
+            <label className="text-neon-blue text-xs block mb-1">Region/Country:</label>
+            <select 
+              value={selectedRegion} 
+              onChange={(e) => setSelectedRegion(e.target.value)}
+              className="w-full p-1 bg-gray-800 text-neon-blue border border-neon-blue/20 rounded text-xs"
+              style={{ maxHeight: '200px' }}
+            >
+              {availableRegions.map(region => (
+                <option key={region} value={region}>{region}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="flex justify-between mb-1">
+            <span className="text-neon-blue text-xs">Year: {selectedPopulationYear}</span>
+            <span className="text-neon-blue text-xs">Population</span>
+          </div>
+          <input 
+            type="range" 
+            min={Math.min(...populationYears)} 
+            max={Math.max(...populationYears)} 
+            value={selectedPopulationYear} 
+            onChange={(e) => setSelectedPopulationYear(+e.target.value)}
+            step="1"
+            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+          />
+          <div className="flex justify-between text-xs text-gray-400 mt-1">
+            <span>{Math.min(...populationYears)}</span>
+            <span>{Math.max(...populationYears)}</span>
           </div>
         </div>
       )}
@@ -1090,19 +1400,6 @@ export default function ReactGlobeExample() {
               style={{ maxHeight: '80vh', overflowY: 'auto' }}
             >
               <div className="space-y-4">
-                {/* Star Background Toggle - Adding as first option */}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Star Background</span>
-                  <label className="switch">
-                    <input 
-                      type="checkbox" 
-                      checked={showStarBackground} 
-                      onChange={(e) => setShowStarBackground(e.target.checked)} 
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-
                 {/* Glow Effects Toggle */}
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-neon-blue">Glow Effects</span>
