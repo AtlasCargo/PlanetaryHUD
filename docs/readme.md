@@ -1,3 +1,5 @@
+![alt text](https://github.com/AtlasCargo/PlanetaryHUD/blob/main/src/img/screen.png?raw=true)
+
 # PlanetaryHUD
 
 PlanetaryHUD is an interactive 3D planetary interface built with React and Three.js. It allows users to explore and interact with 3D representations of planets, providing an engaging and educational experience. The application can load interactive datasets such as population and life expectancy, displaying them on the globe or as graphs.
