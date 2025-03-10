@@ -21,18 +21,22 @@ PlanetaryHUD is an interactive 3D planetary interface built with React and Three
 ## Installation
 
 1. Clone the repository:
+   
    ```bash
    git clone https://github.com/AtlasCargo/PlanetaryHUD.git
    ```
-2. Navigate to the project directory:
+3. Navigate to the project directory:
+   
    ```bash
    cd PlanetaryHUD
    ```
-3. Install dependencies:
+5. Install dependencies:
+   
    ```bash
    yarn install
    ```
-4. Start the development server:
+7. Start the development server:
+   
    ```bash
    yarn start
    ```
