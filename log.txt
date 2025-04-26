@@ -1,0 +1,174 @@
+Levels of data¶
+The following diagram presents an hypothetical dataset with two tables (Table A and Table B). Both tables have a primary keys and some indicators.
+
+catalog
+
+dataset
+
+table A
+
+primary key
+
+variable A1
+
+variable A2
+
+table B
+
+primary key
+
+variable B1
+
+variable B2
+
+variable B3
+
+Catalog (owid.catalog.CatalogMixin)¶
+A catalog is a collection of datasets, represented on disk as a folder of folders.
+
+Datasets (owid.catalog.Dataset)¶
+A dataset is a group tables, represented on disk as a folder. Inside the folder, an index.json file containing metadata about the dataset as a whole.
+
+The dataset folder is named after the dataset's short name, which is a unique identifier for the dataset. The short name is used in URLs, and to identify the dataset in the catalog.
+
+The folder contains one or more Feather files, each of which represents a table.
+
+Tables (owid.catalog.Table)¶
+A table is a data file in Feather format (<short_name>.feather) or Parquet format (<short_name>.parquet) with an accompanying JSON metadata file (<short_name>.meta.json).
+
+Feather/Parquet were chosen since they are fast, compact, and preserves types, avoiding the need to describe the types in the table's metadata file.
+
+In Python, the Table class is a Pandas DataFrame extended to support metadata.
+
+The metadata file indicates the primary key of the table, for example:
+
+
+{ primary_key: ["country", "year"] }
+All indicators in the table share the same primary key. Any column of the table that is not in the primary key is considered to be a indicator.
+
+Variables (owid.catalog.Variable)¶
+Each variable represents a single indicator, and is equivalent to a Pandas Series, including its index.
+
+For example, a table with the columns (country, year, population) and primary key (country, year) would have one indicator: population.
+
+Ergonomics¶
+To make these data types easier to work with, datasets, tables and indicators must all have a short_name property that uniquely identifies them.
+
+A short name is a lowercase string containing only alphanumeric characters and underscores. It must start with a letter.
+
+Working with this format¶
+The owid-catalog package provides a Python API for working with this format.
+
+It can be installed with:
+
+
+pip install owid-catalog
+and imported into Python with:
+
+
+from owid import catalog
+Note
+
+If you have set your working environment, you will have the owid-catalog from lib/catalog.
+
+
+ChatGPT:
+
+Nachgedacht für 1m 14s
+Summary
+The “Levels of data” write‑up you’re seeing isn’t a blog post on our site but rather part of OWID’s ETL documentation (published 16 Apr 2025 by the “owidbot”) that formalizes how our internal data pipeline organizes everything into Catalog → Dataset → Table → Variable hierarchies 
+docs.owid.io
+. To work with these programmatically, OWID provides the owid-catalog Python package (installable from PyPI) which exposes both a Charts catalog API and a broader Data science API for finding, loading, and inspecting datasets, tables, and individual variables 
+PyPI
+. If your goal remains “get me all grapher slugs” then you can call charts.list_charts() from that package; it fetches the same list that the public Data API uses under the hood 
+PyPI
+.
+
+The “Levels of data” documentation
+Location & purpose
+This section lives in the Common Format chapter of OWID’s ETL docs on docs.owid.io, under “Data model → Levels of data” 
+docs.owid.io
+. It’s aimed at developers and data engineers working on OWID’s extraction‑transform‑load (ETL) pipeline, not general blog readers.
+
+Core hierarchy
+Catalog (owid.catalog.CatalogMixin): a top‑level folder grouping multiple datasets on disk 
+docs.owid.io
+.
+
+Dataset (owid.catalog.Dataset): a subfolder named by a short_name with an index.json describing overall metadata 
+docs.owid.io
+.
+
+Table (owid.catalog.Table): stored as Feather or Parquet (e.g. <short_name>.feather) plus <short_name>.meta.json indicating the primary key 
+docs.owid.io
+.
+
+Variable (owid.catalog.Variable): each non‑key column in a table, represented as a Pandas Series with its own metadata 
+docs.owid.io
+.
+
+Working with OWID’s Python API
+Installation
+Install via pip:
+
+bash
+Kopieren
+Bearbeiten
+pip install owid-catalog
+This pulls the latest experimental release (v0.3.11 at the time of writing) from PyPI 
+PyPI
+ and integrates into OWID’s ETL monorepo on GitHub 
+GitHub
+.
+
+Charts catalog API
+Use the charts submodule to fetch and list grapher slugs exactly as they appear on our site:
+
+python
+Kopieren
+Bearbeiten
+from owid.catalog import charts
+
+# List all available chart slugs
+all_slugs = charts.list_charts()
+print(len(all_slugs), "charts found")
+Under the hood, this hits the same endpoint as the public Chart Data API (the familiar /grapher/<slug>.csv and .metadata.json URLs) but wrapped in Pandas data frames 
+PyPI
+.
+
+Data science API
+For deeper catalog exploration (including non‑Grapher tables), use the root catalog object:
+
+python
+Kopieren
+Bearbeiten
+from owid import catalog
+
+# Search for datasets, tables, or variables matching "covid"
+matches = catalog.find("covid")
+print(matches.head())
+This returns a DataFrame of (table, dataset, version, namespace…) and lets you .load() any result into a Pandas DataFrame 
+docs.owid.io
+.
+
+How this relates to JSON endpoints
+While earlier we recommended /v1/indicators?per_page=10000 or the baked JSON catalog as quick slug lists, the owid-catalog Python package is often more robust if you can’t directly fetch those URLs due to network or CORS restrictions 
+docs.owid.io
+. Behind the scenes it will either:
+
+Pull the remote catalog index over HTTPS from OWID’s S3 (same source as the baked JSON), or
+
+Read a local clone of the ETL repo (lib/catalog/…) if you have the code checked out.
+
+Takeaways
+“Levels of data” is documentation (not a blog) on the internal Common Format for OWID’s ETL pipeline 
+docs.owid.io
+.
+
+owid-catalog (PyPI, MIT‑licensed) is your turnkey Python API for listing all Grapher slugs via charts.list_charts() 
+PyPI
+.
+
+If direct JSON endpoints are unreachable, offload slug‑harvesting to the Python API which transparently handles remote vs. local catalogs 
+docs.owid.io
+.

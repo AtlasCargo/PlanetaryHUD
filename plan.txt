@@ -1,0 +1,395 @@
+Reimplementation Plan for ReactGlobeExample.jsx
+================================================
+
+Overview
+--------
+This document outlines a detailed plan to reimplement the ReactGlobeExample.jsx component with the following features:
+  1. AI System Integration (o4-mini and o4-mini-high via Responses API, Google auth, persistent chat history)
+  2. World Bank Data Search (search UI, dropdown of datasets, data fetching, globe visualization)
+  3. AI-JavaScript Interaction (natural-language prompts driving globe and other UI updates)
+ 4. Avatar System (settings panel with 12 AI-generated avatars via GPT-Image-1)
+
+File Structure
+--------------
+src/
+  components/
+    ReactGlobeExample.jsx    # Main container
+    GlobeContainer.jsx        # Wraps three.js / react-globe component
+    SidebarSearch.jsx         # World Bank search UI
+    ChatWindow.jsx            # AI chat UI and history
+    AvatarSettings.jsx        # Avatar selection panel
+    AuthProvider.jsx          # Google OAuth context/provider
+  services/
+    openaiClient.js           # Responses API wrapper (o4-mini, o4-mini-high)
+    worldBankApi.js           # Wrappers for World Bank endpoints
+    avatarService.js          # Fetch or generate avatars (GPT-Image-1)
+
+Step-by-Step Implementation
+---------------------------
+
+1. Dependency Setup
+   - Install required packages:
+     * axios (HTTP requests)
+     * @react-google-login/google-login (or similar) for OAuth
+     * openai (or fetch-based wrapper)
+     * react-globe.gl (or custom three.js Globe)
+     * classnames, react-transition-group (optional UI)
+     * any state management (Context API or Redux as used)
+   - Ensure environment variables:
+     * REACT_APP_OPENAI_API_KEY
+     * REACT_APP_GOOGLE_CLIENT_ID
+
+2. Authentication Context
+   - Create AuthProvider.jsx:
+     * Initialize Google OAuth provider.
+     * Expose `user`, `login`, `logout` via React Context.
+     * Persist authentication state in localStorage.
+   - Wrap <App> or <ReactGlobeExample> with AuthProvider.
+
+3. OpenAI Client Service
+   - Create openaiClient.js:
+     * Export `sendMessage(messages, model)` that calls Responses API endpoints for o4-mini and o4-mini-high.
+     * Handle streaming or batched responses.
+   - Add support for function calling: define a JSON schema for actions (rotate, highlight, addLayer).
+
+4. ChatWindow Component
+   - In ChatWindow.jsx:
+     * Form for user input; on submit, append to `messages` state.
+     * Call openaiClient.sendMessage([...messages, newMessage], selectedModel).
+     * Stream or await AI response; update `messages` state.
+     * Persist `messages` to localStorage or backend for history.
+     * Handle function-call-like payloads to trigger JS actions via props callbacks.
+
+5. Globe Container
+   - In GlobeContainer.jsx:
+     * Set up react-globe.gl or Three.js globe with empty data layers.
+     * Expose imperative methods via `useImperativeHandle`:
+         - addDataLayer(dataset): apply color values, shapes.
+         - rotateTo(countryCode): animate globe rotation.
+         - highlightCountry(countryCode): set highlight style.
+     * Accept prop `dataLayers` and update accordingly.
+
+6. SidebarSearch Component
+   - In SidebarSearch.jsx:
+     * Input field with debounced onChange.
+     * Call worldBankApi.searchDatasets(query) to fetch matching datasets.
+     * Render a dropdown list of titles.
+     * On select, call worldBankApi.getData(datasetId, params) to fetch data.
+     * Pass resulting data to parent via onDataFetch callback.
+   - Implement worldBankApi.js:
+     * searchDatasets(query): GET http://api.worldbank.org/v2/datacatalog?query={query}
+     * getData(id): GET http://api.worldbank.org/v2/country/all/indicator/{id}?format=json
+
+7. Integrating AI-JavaScript Interaction
+   - In ChatWindow or parent container:
+     * Detect function call intents from AI (e.g. JSON with name and args).
+     * Map to globe actions: rotate, highlight, addLayer, updateSidebar filters.
+     * Invoke methods on GlobeContainer via React refs.
+
+8. AvatarSettings Component
+   - In AvatarSettings.jsx:
+     * Fetch 12 avatar URLs from avatarService.getAvatars(count=12).
+     * Render avatars in grid; indicate currently selected.
+     * On click, update user profile context and local state.
+     * Persist avatar choice in localStorage or backend.
+   - Implement avatarService.js to call GPT-Image-1 API endpoint.
+
+9. Hamburger Menu & Layout
+   - Add a top-left hamburger icon in ReactGlobeExample.jsx:
+     * Toggles SidebarSearch and AvatarSettings panels.
+   - Use CSS grid or flex to layout:
+     * Left sidebar (search + settings collapsed)
+     * Main globe view center
+     * Chat panel bottom-right or slide-in.
+
+10. Putting It All Together
+   - In ReactGlobeExample.jsx:
+     * Import and render AuthProvider, SidebarSearch, GlobeContainer, ChatWindow, AvatarSettings.
+     * Wire up callbacks:
+         - onDatasetSelect → GlobeContainer.addDataLayer
+         - onChatFunctionCall → globeRef.current[action](...args)
+     * Manage state: `messages`, `dataLayers`, `settingsOpen`, `searchOpen`, `selectedAvatar`, `user`.
+
+11. Testing & Validation
+   - Manual test flows:
+     * Login via Google → chat with AI → globe responds to prompts.
+     * Search World Bank → select dataset → globe updates.
+     * Change avatar → avatar persists on reload.
+   - If unit tests exist, add basic tests for utility functions and services.
+
+12. Documentation
+   - Update README.md to document new features, environment variables, and component structure.
+   - Include screenshots or GIFs for major flows.
+
+Timeline Estimate
+----------------
+ ~1 day: Dependency setup, auth and AI client service
+ ~1 day: ChatWindow + AI-JS integration
+ ~1 day: GlobeContainer + World Bank search
+ ~0.5 day: AvatarSettings + layout
+ ~0.5 day: Testing, polish, documentation
+
+Total: ~4 days of focused development
+
+
+========================================
+V2 – “Glorious” Execution Blueprint 🦄
+========================================
+
+The previous section was *just* the high-level roadmap.  The following pages turn that roadmap into a pull-request-ready spec that o4-mini can translate to production-grade code **without having to ask any follow-up questions**.
+
+
+────────────────────────────────────────
+1.  Domain Model & Global Types (TypeScript)
+────────────────────────────────────────
+
+```ts
+// src/types.d.ts -----------------------------------------------------------
+export interface ChatMessage {
+  id: string;           // uuid
+  role: 'user' | 'assistant' | 'system';
+  content: string;      // markdown-compliant text
+  createdAt: number;    // unix ms
+  functionCall?: {
+    name: string;
+    args: Record<string, unknown>;
+  };
+}
+
+export interface DatasetMeta {
+  id: string;
+  name: string;
+  description: string;
+  indicator: string;     // World-Bank indicator id
+  source: string;
+  topic: string;
+}
+
+export interface GlobeDataset {
+  meta: DatasetMeta;
+  yearly: { [year: string]: { [iso3: string]: number | null } };
+  min: number;
+  max: number;
+}
+
+export interface Avatar {
+  id: string;          // ‘a-gpt-dragon-1’ …
+  url: string;         // CDN url
+  alt: string;
+}
+
+export interface AppState {
+  authUser: google.accounts.id.CredentialResponse | null;
+  messages: ChatMessage[];
+  globeDatasets: GlobeDataset[];   // rendered on Globe
+  selectedAvatarId: string;
+}
+```
+
+
+────────────────────────────────────────
+2.  OpenAI / Function-Calling Contract
+────────────────────────────────────────
+
+We instruct *o4-mini* to prefer the function-calling format below.  The client automatically executes the function and streams the return value back into the conversation.
+
+```jsonc
+// “name“ MUST be one of the functions declared under `openaiClient.chatFunctions`
+{
+  "name": "rotateGlobe",
+  "arguments": {
+    "lat": 48.8566,
+    "lng": 2.3522,
+    "durationMs": 1250
+  }
+}
+```
+
+List of exposed functions (complete JSON schema lives in openaiClient.ts):
+
+1. rotateGlobe(lat:number,lng:number,durationMs?:number)
+2. highlightCountry(iso3:string)
+3. addDatasetToGlobe(datasetId:string)
+4. setYear(year:number)                  // time-slider integration
+5. toggleSidebar(panel:"search"|"chat"|"settings")
+
+
+────────────────────────────────────────
+3.  Directory Layout (final)
+────────────────────────────────────────
+
+```
+src/
+ ├── components/
+ │    ├── AppRouter.jsx               # (<Routes>) with lazy code-splits
+ │    ├── ReactGlobeExample.jsx       # root page – see mock below ↴
+ │    ├── globe/
+ │    │     ├── GlobeContainer.jsx
+ │    │     ├── TimeSlider.jsx
+ │    │     └── dataset-color-scales.ts
+ │    ├── sidebar/
+ │    │     ├── SidebarSearch.jsx
+ │    │     ├── AvatarSettings.jsx
+ │    │     └── HamburgerButton.jsx
+ │    └── chat/
+ │          ├── ChatWindow.jsx
+ │          └── MessageBubble.jsx
+ ├── contexts/
+ │    ├── AuthProvider.jsx
+ │    └── GlobalStateProvider.jsx     # lightweight Zustand wrapper
+ ├── hooks/
+ │    ├── useDebounce.ts
+ │    └── useGlobeActions.ts          # returns imperative globe helpers
+ ├── services/
+ │    ├── openaiClient.ts
+ │    ├── worldBankApi.ts
+ │    └── avatarService.ts
+ └── types.d.ts
+```
+
+
+────────────────────────────────────────
+4.  Mock-Code Skeletons 🧩
+────────────────────────────────────────
+
+Below are condensed (~90%) implementations.  Replace `/* … */` with real code.
+
+```jsx
+// src/components/ReactGlobeExample.jsx -------------------------------------
+import { useEffect, useRef } from 'react';
+import GlobeContainer from './globe/GlobeContainer';
+import SidebarSearch   from './sidebar/SidebarSearch';
+import AvatarSettings  from './sidebar/AvatarSettings';
+import ChatWindow      from './chat/ChatWindow';
+import HamburgerButton from './sidebar/HamburgerButton';
+import { useGlobalState } from '../contexts/GlobalStateProvider';
+
+export default function ReactGlobeExample () {
+  const globeRef = useRef(null);
+  const [ state, actions ] = useGlobalState();
+
+  /* bridge OpenAI function-calls → imperative globe methods */
+  useEffect(() => {
+    const unsub = actions.subscribeToAI((fn) => {
+      switch (fn.name) {
+        case 'rotateGlobe':
+          globeRef.current?.rotateTo(fn.args.lat, fn.args.lng, fn.args.durationMs);
+          break;
+        case 'highlightCountry':
+          globeRef.current?.highlightCountry(fn.args.iso3);
+          break;
+        case 'addDatasetToGlobe':
+          actions.loadAndAddDataset(fn.args.datasetId);
+          break;
+        case 'setYear':
+          actions.setYear(fn.args.year);
+          break;
+        case 'toggleSidebar':
+          actions.toggleSidebar(fn.args.panel);
+          break;
+        default:
+      }
+    });
+    return () => unsub();
+  }, [actions]);
+
+  return (
+    <div className="h-screen w-screen overflow-hidden text-white bg-black">
+      <HamburgerButton />
+      <SidebarSearch />
+      <AvatarSettings />
+
+      <GlobeContainer ref={globeRef} datasets={state.globeDatasets} />
+
+      <ChatWindow />
+    </div>
+  );
+}
+```
+
+```ts
+// src/services/openaiClient.ts ---------------------------------------------
+import OpenAI from 'openai';
+import { ChatMessage } from '../types';
+
+const client = new OpenAI({ apiKey: process.env.REACT_APP_OPENAI_API_KEY });
+
+export const chatFunctions = [
+  {
+    name: 'rotateGlobe',
+    description: 'Rotate 3-D globe to latitude/longitude',
+    parameters: {
+      type: 'object',
+      properties: {
+        lat: { type: 'number' },
+        lng: { type: 'number' },
+        durationMs: { type: 'number', default: 1000 },
+      },
+      required: ['lat', 'lng'],
+    },
+  },
+  /* +4 other functions defined similarly */
+] as const;
+
+export async function sendMessage (
+  messages: ChatMessage[],
+  model: 'o4-mini' | 'o4-mini-high' = 'o4-mini'
+) {
+  const completion = await client.chat.completions.create({
+    model,
+    messages: messages.map(({ role, content, functionCall }) =>
+      functionCall
+        ? ({ role, name: functionCall.name, content })
+        : ({ role, content })
+    ),
+    functions: chatFunctions,
+    stream: true,
+  });
+
+  // Streaming transport omitted – implement with EventSource polyfill ↴
+}
+```
+
+```jsx
+// src/components/globe/TimeSlider.jsx --------------------------------------
+import { useGlobalState } from '../../contexts/GlobalStateProvider';
+
+export default function TimeSlider() {
+  const [state, actions] = useGlobalState();
+  return (
+    <input
+      type="range"
+      min="1960"
+      max="2022"
+      value={state.year}
+      onChange={(e) => actions.setYear(+e.target.value)}
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 w-1/2"
+    />
+  );
+}
+```
+
+
+────────────────────────────────────────
+5.  Progressive Enhancement Ideas ✨ (post-MVP)
+────────────────────────────────────────
+
+• *Offline Cache*: Store fetched datasets in IndexedDB using idb-keyval.
+• *Serverless Proxy*: Cloudflare Worker to add CORS + caching for World Bank.
+• *Accessibility*: ARIA-live regions for chat, full keyboard nav for sliders.
+• *CI*: GitHub Action running `npm test`, `npm run lint`, and a Lighthouse CI.
+• *Mobile*: Gesture support for globe rotation + collapsible chat drawer.
+• *Snapshot Testing*: Jest + React Testing Library for critical UI.
+
+
+────────────────────────────────────────
+6.  Definition of Done ✅
+────────────────────────────────────────
+
+1. All core flows demo-able without console errors.
+2. Lighthouse performance score ≥ 80 on desktop.
+3. 100% Typescript strict-null-checks pass.
+4. README + docs updated.
+5. PR reviewed & merged with green CI.
+
+― Fin ―

@@ -1,0 +1,8 @@
+---
+description: update the project.mdc when making important changes.
+globs: 
+---
+
+# Your rule content
+
+[project.mdc](mdc:project.mdc)

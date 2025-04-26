@@ -1,0 +1,6 @@
+- type: bash
+  command: npm install
+- type: instruction
+  text: Open the browser and navigate to http://localhost:3000
+- type: wait
+  seconds: 10

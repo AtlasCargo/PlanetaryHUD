@@ -1,0 +1,576 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: black;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+}
+
+/* Mobile viewport height fix */
+html {
+  height: -webkit-fill-available;
+}
+
+/* Force landscape on mobile */
+@media screen and (max-width: 768px) and (orientation: portrait) {
+  body::after {
+    content: "Please rotate your device to landscape mode for the best experience";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    color: #00e6ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    z-index: 9999;
+    font-family: 'Orbitron', sans-serif;
+    text-shadow: 0 0 10px rgba(0, 230, 255, 0.7);
+  }
+}
+
+/* Responsive text sizing */
+@media screen and (max-width: 768px) {
+  :root {
+    font-size: 14px;
+  }
+  
+  h1 {
+    font-size: calc(1.2rem + 1vw) !important;
+  }
+  
+  h2 {
+    font-size: calc(1rem + 0.8vw) !important;
+  }
+  
+  .neon-button {
+    padding: 0.5rem 1rem !important;
+    font-size: 0.9rem !important;
+  }
+
+  .text-4xl {
+    font-size: calc(1.5rem + 1vw) !important;
+  }
+  
+  .text-2xl {
+    font-size: calc(1rem + 0.8vw) !important;
+  }
+}
+
+/* Landscape mode adjustments */
+@media screen and (max-width: 768px) and (orientation: landscape) {
+  .main-content {
+    height: calc(100vh - 4rem - 2rem) !important;
+  }
+  
+  .top-header {
+    height: 4rem !important;
+  }
+  
+  .planetary-hub-top {
+    height: auto !important;
+  }
+
+  .main-content {
+    height: calc(100vh - 3rem - 2rem) !important;
+  }
+  
+  .top-header {
+    height: 3rem !important;
+  }
+  
+  .bottom-header {
+    height: 2rem !important;
+  }
+
+  .sidebar {
+    width: 15vw !important;
+  }
+}
+
+/* Portrait mode specific adjustments */
+@media screen and (max-width: 768px) and (orientation: portrait) {
+  .sidebar {
+    width: 80vw !important;
+  }
+}
+
+/* Fix for iOS Safari 100vh issue */
+@supports (-webkit-touch-callout: none) {
+  .h-screen {
+    height: -webkit-fill-available;
+  }
+}
+
+@keyframes scan {
+  0% { background-position: 0 100%; }
+  100% { background-position: 0 0; }
+}
+
+.glow {
+  animation: glow-pulse 1.5s ease-in-out infinite alternate;
+  text-shadow: 0 0 10px rgba(0, 230, 255, 0.7);
+}
+
+@keyframes glow-pulse {
+  from {
+    text-shadow: 0 0 5px rgba(0, 230, 255, 0.3),
+                  0 0 10px rgba(0, 230, 255, 0.3);
+  }
+  to {
+    text-shadow: 0 0 15px rgba(0, 230, 255, 0.9),
+                  0 0 20px rgba(0, 230, 255, 0.6);
+  }
+}
+
+.glow::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, 
+    rgba(0, 230, 255, 0.3) 0%,
+    rgba(0, 230, 255, 0.1) 50%,
+    rgba(0, 230, 255, 0.3) 100%
+  );
+  opacity: 0.5;
+  animation: glow-pulse 2s ease-in-out infinite alternate;
+  z-index: -1;
+}
+
+.font-sciFi {
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700; /* Bold weight */
+  letter-spacing: 0.05em;
+}
+
+.glow-hover {
+  transition: all 0.3s ease;
+  box-shadow: 0 0 15px -5px rgba(0, 230, 255, 0.3);
+}
+
+.glow-hover:hover {
+  box-shadow: 0 0 25px -5px rgba(0, 230, 255, 0.5);
+}
+
+.glow-text {
+  text-shadow: 0 0 8px rgba(0, 230, 255, 0.5);
+}
+
+@keyframes border-glow {
+  0% { border-color: rgba(0, 230, 255, 0.3); }
+  50% { border-color: rgba(0, 230, 255, 0.7); }
+  100% { border-color: rgba(0, 230, 255, 0.3); }
+}
+
+.glow-red {
+  animation: red-glow-pulse 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes red-glow-pulse {
+  from {
+    text-shadow: 0 0 5px rgba(255, 0, 0, 0.3),
+                 0 0 10px rgba(255, 50, 50, 0.3);
+  }
+  to {
+    text-shadow: 0 0 15px rgba(255, 0, 0, 0.7),
+                 0 0 25px rgba(255, 50, 50, 0.5);
+  }
+}
+
+.glow-static {
+  position: relative;
+  text-shadow: 
+    0 0 15px rgba(0, 230, 255, 0.7),
+    0 0 25px rgba(100, 50, 255, 0.5),
+    0 0 35px rgba(200, 0, 255, 0.3);
+  background: linear-gradient(
+    to right,
+    #00e6ff,
+    #6432ff,
+    #c800ff
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 2px rgba(0, 230, 255, 0.5));
+}
+
+.glow-subtle {
+  animation: subtle-glow 2s ease-in-out infinite alternate;
+  opacity: var(--glow-intensity, 1);
+  filter: brightness(calc(1 + (var(--glow-intensity) * 0.5)));
+}
+
+@keyframes subtle-glow {
+  from {
+    text-shadow: 
+      0 0 calc(5px * var(--glow-intensity)) rgba(0, 230, 255, calc(0.2 * var(--glow-intensity))),
+      0 0 calc(10px * var(--glow-intensity)) rgba(0, 230, 255, calc(0.1 * var(--glow-intensity)));
+  }
+  to {
+    text-shadow: 
+      0 0 calc(15px * var(--glow-intensity)) rgba(0, 230, 255, calc(0.3 * var(--glow-intensity))),
+      0 0 calc(20px * var(--glow-intensity)) rgba(0, 230, 255, calc(0.2 * var(--glow-intensity)));
+  }
+}
+
+.form-checkbox:checked {
+  background-color: rgba(0, 230, 255, 0.5);
+  border-color: #00e6ff;
+}
+
+.animate-spin-slow {
+  animation: spin 8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.z-\[9999\] {
+  z-index: 9999;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.shadow-2xl {
+  box-shadow: 0 0 30px rgba(0, 230, 255, 0.2);
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+}
+
+.switch input { 
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #2d3748;
+  transition: .4s;
+  border: 1px solid rgba(0, 230, 255, 0.5);
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 1px;
+  background-color: rgba(0, 230, 255, 0.8);
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: rgba(0, 230, 255, 0.2);
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  background: #00e6ff;
+  border-radius: 50%;
+  cursor: ne-resize;
+}
+
+.glow-transition {
+  transition: all 0.3s ease-out;
+}
+
+.neon-text {
+  text-shadow: 0 0 10px currentColor;
+}
+
+.glow-layer {
+  pointer-events: none;
+  z-index: -1;
+}
+
+.seamless-bg {
+  background-image: 
+    linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.planetary-hub-top {
+  position: absolute;
+  top: 0;
+  width: 100%;
+  z-index: 10;
+}
+
+.graph-container {
+  position: relative;
+  z-index: 5;
+  height: calc(100vh - 120px); /* Adjust based on your header/footer */
+}
+
+.planetary-hub-bottom {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
+}
+
+.neon-button {
+  @apply px-6 py-3 bg-black text-neon-cyan border-2 border-neon-cyan rounded-lg 
+         hover:bg-neon-cyan/10 transition-all duration-300;
+}
+
+.blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* Top Header Styling */
+.top-header {
+  height: 6rem;
+  background: rgba(0, 0, 0, 0.8);
+  border-bottom: 1px solid rgba(0, 255, 255, 0.3);
+}
+
+.glow-static {
+  animation: text-glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes text-glow {
+  from { text-shadow: 0 0 10px #00ffff; }
+  to { text-shadow: 0 0 20px #00ffff, 0 0 30px #00ffff; }
+}
+
+/* Z-index Management */
+.z-50 {
+  z-index: 50;
+}
+
+/* Main Content Area */
+.main-content {
+  padding-top: 6rem; /* Match header height */
+  height: calc(100vh - 6rem - 3rem); /* Account for header and footer */
+}
+
+.error-overlay {
+  position: fixed;
+  top: 6rem; /* Below header */
+  left: 0;
+  right: 0;
+  bottom: 3rem; /* Above footer */
+  background: rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.error-content {
+  text-align: center;
+  padding: 2rem;
+  border: 2px solid #ff0000;
+  border-radius: 0.5rem;
+  background: linear-gradient(
+    to bottom right,
+    rgba(255, 0, 0, 0.1),
+    rgba(0, 0, 0, 0.8)
+  );
+}
+
+.neon-button {
+  padding: 1rem 2rem;
+  background: #000;
+  border: 2px solid #00ffff;
+  color: #00ffff;
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.neon-button:hover {
+  background: rgba(0, 255, 255, 0.1);
+  box-shadow: 0 0 15px #00ffff;
+}
+
+.glow {
+  animation: text-glow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes text-glow {
+  from { text-shadow: 0 0 5px #00ffff; }
+  to { text-shadow: 0 0 20px #00ffff, 0 0 30px #00ffff; }
+}
+
+.neon-button.active {
+  background: rgba(0, 255, 255, 0.2);
+  box-shadow: 0 0 15px #00ffff;
+}
+
+.cursor-nwse-resize {
+  cursor: nwse-resize;
+}
+
+/* Resize Handle Base Styles */
+.resize-handle,
+.resize-handle-vertical {
+  position: absolute;
+  background: transparent;
+  z-index: 1000;
+  transition: background-color 0.2s ease;
+}
+
+.resize-handle {
+  width: 12px;
+  cursor: col-resize;
+  top: 0;
+  bottom: 0;
+}
+
+.resize-handle-vertical {
+  height: 12px;
+  cursor: row-resize;
+  left: 0;
+  right: 0;
+}
+
+/* Interactive States */
+.resize-handle:hover,
+.resize-handle-vertical:hover {
+  background-color: rgba(0, 230, 255, 0.15);
+}
+
+.resizing {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.resizing .resize-handle,
+.resizing .resize-handle-vertical {
+  background-color: rgba(0, 230, 255, 0.3) !important;
+}
+
+/* Add to existing CSS */
+body:has(.resize-handle-vertical.resizing) {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: row-resize !important;
+}
+
+.resize-handle-vertical.resizing {
+  pointer-events: none;
+}
+
+/* Prevent text selection during vertical resize */
+.resizing-vertical {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: row-resize;
+}
+
+.resize-handle-vertical {
+  pointer-events: auto !important;
+}
+
+.vertical-resizing {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  cursor: row-resize !important;
+}
+
+.vertical-resizing * {
+  pointer-events: none;
+}
+
+/* Add hover effect for polygons */
+.polygon-hover {
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.polygon-hover:hover {
+  filter: brightness(1.2);
+  opacity: 0.3 !important;
+}
+
+.star-background {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 200vw; /* Wider than viewport to prevent seams during transform */
+  height: 200vh;
+  transform: translate(-50%, -50%); /* Center the oversized background */
+  z-index: 0;
+  background-image: url('./img/bg_stars.png');
+  background-repeat: repeat;
+  background-size: 622px 360px; /* Set to exact image dimensions */
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  backface-visibility: hidden; /* Prevent seams during transform */
+  transform-style: preserve-3d; /* Help with rendering */
+  image-rendering: -webkit-optimize-contrast; /* Sharper image edges */
+  image-rendering: crisp-edges; /* Prevent anti-aliasing at edges */
+}
+
+.star-background.visible {
+  opacity: 0.2;
+}
+

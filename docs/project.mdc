@@ -1,0 +1,96 @@
+---
+description: 
+globs: 
+---
+# Earth Visualization System (EVS)
+
+## Core Features
+- **3D Globe Rendering**
+  - Base Texture: NASA Night Lights (2016)
+  - Dynamic Opacity Control
+  - Atmospheric Effects
+- **Performance Management**
+  - Adaptive Rendering (Low/High Power Modes)
+  - Background Tab Optimization
+  - Memory Cleanup Protocols
+
+## Technical Specifications
+
+### Visualization Engine
+- **Three.js** v0.152.0
+- **Three-Globe** v2.28.0
+- **WebGL 2.0** Context
+
+### Performance Profile
+| Mode          | GPU Usage | CPU Impact | Features Enabled          |
+|---------------|-----------|------------|---------------------------|
+| Low Power     | <30%      | Minimal    | Basic Rendering           |
+| High Power    | 60-80%    | Moderate   | AA, Reflections, Animations |
+
+## Development Roadmap
+
+### Q3 2024
+- [ ] LOD System Implementation
+- [ ] Texture Streaming Support
+- [ ] Web Worker Integration
+
+### Q4 2024
+- [ ] Cross-Component State Management
+- [ ] Memory Leak Detection Suite
+- [ ] Automated Performance Benchmarking
+
+## Known Limitations
+1. Texture Resolution Limitations at High Zoom
+2. Mobile Device Thermal Management
+3. Cross-Browser Shader Compatibility
+
+## Optimization Opportunities
+- **Texture Compression**: BC7 format for smaller payloads
+- **Geometry Pooling**: Reuse buffer geometries
+- **Shader Optimization**: GLSL code minification
+
+## Dependency Graph
+```
+mermaid
+graph TD
+  A[ReactGlobeExample] --> B[Three-Globe]
+  A --> C[GraphComponent]
+  A --> D[SettingsManager]
+  B --> E[Three.js]
+  E --> F[WebGL]
+```
+
+## Contribution Guidelines
+- Performance-critical changes require benchmark validation
+- New visualization features need LOD implementation
+- Texture updates must include fallback versions
+```
+
+## Version 1.1 (Current)
+**Global Visualization Updates**
+- Implemented NASA Black Marble 2016 texture (01deg resolution)
+- Source: [NASA Visible Earth](mdc:https:/visibleearth.nasa.gov/images/148903/black-marble-2016-global-maps)
+- Texture Specifications:
+  - Resolution: 0.1 degree/pixel
+  - Format: JPEG
+  - Dimensions: 3600x1800
+  - Composite from Suomi NPP VIIRS data
+
+**Dependencies**
+- Added texture size note to performance considerations
+- Updated data attribution requirements
+
+## Known Issues
+- Texture loading time can vary based on network conditions
+- Extreme zoom levels may show pixelation (LOD system planned) 
+
+TO DO:
+You’re integrating OpenAI’s o4‑mini and 4.1 models into an existing React/Node website to let users
+– sign up / log in (JWT or sessions)
+– store email, password hash, avatar URL and optional user‑provided OpenAI key
+– enter their own API key in a settings UI (encrypted at rest)
+– choose from 12 default avatars (4 female, 4 male, 4 robot/animal)
+– generate new avatars via a backend endpoint (/api/avatar) calling OpenAI Image API with o4‑mini or 4.1
+– save and display the generated avatar
+Include validation, error handling, and basic tests.  
+Output your work as a git patch (use `apply_patch`) that creates or updates all necessary files.
