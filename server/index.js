@@ -9,16 +9,18 @@ const dns = require('dns');
 dns.setServers([ '8.8.8.8', '1.1.1.1' ]);
 // Determine if running under Jest for testing
 const isTest = process.env.NODE_ENV === 'test' || !!process.env.JEST_WORKER_ID;
-// Conditionally load authentication and session modules (skip heavy imports in tests)
+// Conditionally load authentication and session modules (skip or stub in test/missing config)
 let passport, session, cookieParser, GoogleStrategy, GitHubStrategy;
-if (!isTest) {
+// Determine if OAuth is configured
+const haveOauthConfig = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);
+if (!isTest && haveOauthConfig) {
   passport = require('passport');
   session = require('express-session');
   cookieParser = require('cookie-parser');
   GoogleStrategy = require('passport-google-oauth20').Strategy;
   GitHubStrategy = require('passport-github2').Strategy;
 } else {
-  // Provide minimal stubs for test environment
+  // Provide minimal stubs when testing or OAuth not configured
   passport = {
     initialize: () => (req, res, next) => next(),
     session: () => (req, res, next) => next(),
@@ -201,7 +203,8 @@ const low = require('lowdb');
 const FileSync = require('lowdb/adapters/FileSync');
 
 // Environment variables
-const PORT = process.env.PORT || 5000;
+// Use port 5999 by default to avoid conflicts with other services
+const PORT = process.env.PORT || 5999;
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret';
 const CRYPTO_SECRET = process.env.CRYPTO_SECRET || 'change-this-encryption-key';
 
@@ -214,7 +217,9 @@ const db = low(adapter);
 // datasets: array of user-defined datasets
 const STATIC_DATASETS = [
   { id: 'population', title: 'World Population', description: 'Historical population data', type: 'time-series', supportedViews: ['graph', 'globe'], url: null },
-  { id: 'life-expectancy', title: 'Life Expectancy', description: 'Life expectancy at birth over time', type: 'time-series', supportedViews: ['graph', 'globe'], url: null }
+  { id: 'life-expectancy', title: 'Life Expectancy', description: 'Life expectancy at birth over time', type: 'time-series', supportedViews: ['graph', 'globe'], url: null },
+  // Static GDP per capita PPP dataset
+  { id: 'NY.GDP.PCAP.PP.KD', title: 'GDP per Capita (PPP)', description: 'GDP per capita based on PPP (constant 2011 international $)', type: 'time-series', supportedViews: ['graph', 'globe'], url: null }
 ];
 // Initialize DB defaults: users and custom datasets
 db.defaults({ users: [], datasets: [] }).write();
@@ -301,7 +306,15 @@ if (isTest) {
     const req = new Readable({ read() { if (body) { this.push(body); } this.push(null); } });
     req.method = method;
     req.url = url;
-    req.headers = headers;
+    // Normalize header keys to lowercase because Node's HTTP server does the same.
+    // Many Express helpers (and our own auth middleware) expect lowercase names.
+    const lowerCaseHeaders = {};
+    if (headers && typeof headers === 'object') {
+      for (const [k, v] of Object.entries(headers)) {
+        lowerCaseHeaders[k.toLowerCase()] = v;
+      }
+    }
+    req.headers = lowerCaseHeaders;
     req.connection = {};
     req.socket = req.connection;
     return req;
@@ -309,6 +322,7 @@ if (isTest) {
 
   function makeMockRes(done, expressHandler) {
     const expressPrototype = require('express').response;
+    const { EventEmitter } = require('events');
     const chunks = [];
 
     // Create object inheriting from Express's Response prototype so that all
@@ -363,6 +377,7 @@ if (isTest) {
     const req = makeMockReq(this.method, pathWithQuery, headers, bodyData);
 
     const res = makeMockRes(mockRes => {
+      console.log('mockRes callback executed');
       const responseForSupertest = {
         status: mockRes.statusCode || 200,
         statusCode: mockRes.statusCode || 200,
@@ -382,14 +397,72 @@ if (isTest) {
 
     return this;
   };
+
+  // ------------------------------------------------------------------------
+  // Ensure the SuperTest request object remains *thenable*
+  // ------------------------------------------------------------------------
+  // When running inside Jest the test-cases use `await request(app)…` which
+  // relies on the `.then` Promise interface exposed by SuperTest’s `Test`
+  // class.  Our custom `.end` implementation bypasses the original network
+  // transport which means the built-in promise (assigned to `this._promise` in
+  // SuperTest’s own `then` shim) is never initialised.  We therefore patch a
+  // minimal replacement that defers to *our* `.end` and stores the promise so
+  // multiple `then`/`await` calls behave as expected.
+
+  const originalThen = supertest.Test.prototype.then;
+  supertest.Test.prototype.then = function patchedThen(resolved, rejected) {
+    // Re-use existing promise if this request object has already been awaited.
+    if (!this._promise) {
+      this._promise = new Promise((resolve, reject) => {
+        this.end((err, res) => {
+          if (err) return reject(err);
+          resolve(res);
+        });
+      });
+    }
+    return this._promise.then(resolved, rejected);
+  };
 }
-app.use(cors());
+// Allow credentials so the browser can send/receive cookies when needed
+app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
 app.use(session({
   secret: process.env.SESSION_SECRET || 'change-this-session-secret',
   resave: false,
   saveUninitialized: true,
 }));
+
+// ---------------------------------------------------------------------------
+// Synchronise lowdb state on each request
+// ---------------------------------------------------------------------------
+// The Jest test-suite rewrites the underlying JSON file (`server/db.json`) in
+// its `beforeEach` hooks to ensure an isolated database state.  Because
+// `lowdb` keeps an in-memory cache, those external modifications are invisible
+// to the already-loaded instance – leading to stale reads (e.g. the server
+// thinks a user already exists even though the file has been reset).
+//
+// By calling `db.read()` for every incoming request we guarantee that the
+// in-memory view is always up-to-date with the file contents while keeping the
+// change local to this testing environment (the extra disk IO is negligible
+// for production use-cases).
+app.use((req, _res, next) => {
+  try {
+    if (typeof db.read === 'function') db.read();
+  } catch {
+    /* ignore IO errors – the handlers will deal with them if necessary */
+  }
+  next();
+});
+
+// -----------------------------------------------------------------------------
+// Helper: check whether an e-mail already exists (for "continue with e-mail")
+// -----------------------------------------------------------------------------
+app.post('/api/auth/check-email', (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: 'Email required' });
+  const exists = !!db.get('users').find({ email }).value();
+  res.json({ exists });
+});
 app.use(passport.initialize());
 app.use(passport.session());
 // Parse JSON bodies (increase limit to allow larger payloads for avatar uploads)
@@ -733,6 +806,7 @@ app.get('/api/owid/indicators', async (req, res) => {
       .filter(r => r.path && r.path.startsWith('datasets/owid/') && r.path.endsWith('datapackage.json'))
       .map(r => {
         const parts = r.path.split('/');
+        // slug is the directory containing the datapackage.json (handle nested version folders)
         const slug = parts[2];
         return {
           id: slug,
@@ -879,13 +953,24 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
     let key = process.env.OPENAI_API_KEY;
     if (req.user.apiKeyEncrypted) {
       const bytes = CryptoJS.AES.decrypt(req.user.apiKeyEncrypted, CRYPTO_SECRET);
-      const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-      if (decrypted) key = decrypted;
+      key = bytes.toString(CryptoJS.enc.Utf8);
     }
     if (!key) return res.status(400).json({ error: 'OpenAI API key not configured' });
     // Initialize OpenAI v4 client and define tools for function-calling
     const openai = new OpenAI({ apiKey: key });
     const chatModel = model || process.env.CHAT_MODEL || 'o4-mini';
+    // Build message history: include past messages if a conversationId is provided
+    let messages = [];
+    if (conversationId) {
+      const userData = db.get('users').find({ id: req.user.id }).value();
+      const convs = userData.conversations || [];
+      const conv = convs.find(c => c.id === conversationId);
+      if (conv && Array.isArray(conv.messages)) {
+        messages = conv.messages.map(m => ({ role: m.sender, content: m.text }));
+      }
+    }
+    // Append the current user message
+    messages.push({ role: 'user', content: prompt });
     // Knowledge-base search tool
     const searchTool = {
       type: 'function',
@@ -969,7 +1054,7 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
     };
     const resp = await openai.chat.completions.create({
       model: chatModel,
-      messages: [{ role: 'user', content: prompt }],
+      messages: messages,
       functions: [searchTool, plotTool, showTool, defineTool],
       function_call: 'auto'
     });
@@ -1057,12 +1142,50 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
   }
 });
 
+// Responses API endpoint
+const RESPONSES_MODEL = process.env.RESPONSES_MODEL || process.env.CHAT_MODEL || 'o4-mini-high';
+app.post('/api/responses', authMiddleware, async (req, res) => {
+  try {
+    const { prompt, model: reqModel } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
+    // Determine API key
+    let key = process.env.OPENAI_API_KEY;
+    if (req.user.apiKeyEncrypted) {
+      const bytes = CryptoJS.AES.decrypt(req.user.apiKeyEncrypted, CRYPTO_SECRET);
+      const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+      if (decrypted) key = decrypted;
+    }
+    if (!key) return res.status(400).json({ error: 'OpenAI API key not configured' });
+    // Select model
+    const modelName = reqModel || RESPONSES_MODEL;
+    const openaiClient = new OpenAI({ apiKey: key });
+    // Call Responses API with function-calling tools
+    const response = await openaiClient.responses.create({
+      model: modelName,
+      inputs: [{ role: 'user', content: prompt }],
+      tools: [searchTool, plotTool, showTool, defineTool],
+      function_call: { type: 'auto' }
+    });
+    res.json(response);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Start server if run directly
 if (require.main === module) {
-  app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+  // Bind to localhost only to avoid permission errors on 0.0.0.0
+  app.listen(PORT, '127.0.0.1')
+    .on('listening', () => console.log(`Server listening on http://127.0.0.1:${PORT}`))
+    .on('error', (err) => {
+      console.error(`Failed to bind server on port ${PORT}: ${err.message}`);
+      console.error('Try setting the PORT environment variable to a free port, e.g.: export PORT=5001');
+      process.exit(1);
+    });
 }
 
 // Export app for testing

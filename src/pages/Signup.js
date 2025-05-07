@@ -46,7 +46,7 @@ export default function Signup() {
     setError(null);
     signup(email, password)
       .then(() => navigate('/'))
-      .catch(err => setError(err.response?.data?.error || 'Signup failed'));
+      .catch(() => setError('Signup failed'));
   };
 
   return (

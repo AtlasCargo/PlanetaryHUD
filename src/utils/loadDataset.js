@@ -1,5 +1,6 @@
 import { csv } from 'd3-fetch';
 import API from './api';
+import { getIndicatorData, getCountries } from '../services/worldBankApi';
 
 /**
  * loadDataset function: Fetches data based on the dataset ID.
@@ -18,6 +19,52 @@ export const loadDataset = async (datasetID) => {
       return await loadLifeExpectancyData();
     default:
       break;
+  }
+  // Handle GDP per capita PPP (constant 2011 international $) for all countries
+  if (datasetID === 'NY.GDP.PCAP.PP.KD') {
+    try {
+      // Fetch list of countries to get their ISO2 codes for API
+      const countryList = await getCountries();
+      console.log('GDP load: fetched country list count:', countryList.length);
+      const codes = countryList.map(c => c.iso2Code).filter(code => code);
+      console.log('GDP load: ISO2 codes sample:', codes.slice(0,5));
+      // Fetch per-country GDP per capita for all codes
+      const seriesMap = await getIndicatorData(codes, datasetID);
+      console.log('GDP load: seriesMap keys count:', Object.keys(seriesMap).length, 'sample:', Object.keys(seriesMap).slice(0,5));
+      // Flatten map into array of {year, entity, iso, value}
+      const data = codes.flatMap(code => (
+        (seriesMap[code] || []).map(dp => ({
+          year: +dp.date,
+          entity: dp.country.value,
+          iso: dp['countryiso3code'],
+          value: dp.value != null ? +dp.value : null
+        }))
+      ));
+      // Filter out invalid entries and sort by year
+      const clean = data.filter(d => !isNaN(d.year) && d.value != null)
+                        .sort((a,b) => a.year - b.year);
+      console.log(`loadDataset GDP entries: ${clean.length}, sample:`, clean.slice(0,5));
+      return clean;
+    } catch (err) {
+      console.error(`Error loading GDP per capita dataset:`, err);
+      return [];
+    }
+  }
+  // Handle World Bank indicators (world-level)
+  if (datasetID.includes('.')) {
+    try {
+      const seriesMap = await getIndicatorData('WLD', datasetID);
+      const series = seriesMap['WLD'] || [];
+      console.log(`Indicator ${datasetID} returned ${series.length} data points`);
+      const worldData = series
+        .map(dp => ({ year: +dp.date, entity: 'World', population: +dp.value, value: +dp.value }))
+        .filter(d => !isNaN(d.year) && !isNaN(d.value))
+        .sort((a, b) => a.year - b.year);
+      return worldData;
+    } catch (err) {
+      console.error(`Error loading indicator ${datasetID}:`, err);
+      return [];
+    }
   }
   // Fallback: attempt to load custom dataset definitions from server
   try {
@@ -121,25 +168,20 @@ export const loadLifeExpectancyData = async () => {
 }; 
 
 /**
- * getAvailableDatasets: Returns a list of available datasets with metadata.
+ * getAvailableDatasets: Returns a list of static and custom datasets.
  * @returns {Promise<Array>} - Array of dataset objects with id, title, and description.
  */
 export const getAvailableDatasets = async () => {
-  // Fetch static + custom datasets from our server
-  let baseDatasets = [];
+  const builtins = [
+    { id: 'population', title: 'World Population' },
+    { id: 'life-expectancy', title: 'Life Expectancy' },
+    { id: 'NY.GDP.PCAP.PP.KD', title: 'GDP per Capita (PPP)' }
+  ];
   try {
     const dsRes = await API.get('/api/datasets');
-    baseDatasets = dsRes.data.datasets || [];
+    return [...builtins, ...(dsRes.data.datasets || [])];
   } catch (err) {
-    console.error('Error fetching custom datasets:', err);
+    console.error('Error fetching datasets, using builtins:', err);
+    return builtins;
   }
-  // Attempt to fetch OWID indicators for live list
-  let owidDatasets = [];
-  try {
-    const owidRes = await API.get('/api/owid/indicators');
-    owidDatasets = owidRes.data.indicators || [];
-  } catch (err) {
-    console.error('Error fetching OWID indicators:', err);
-  }
-  return baseDatasets.concat(owidDatasets);
 };

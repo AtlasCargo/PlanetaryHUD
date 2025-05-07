@@ -1,9 +1,9 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
-import Navbar from './components/Navbar';
+// Removed global Navbar; using sidebar menu instead
 import ProtectedRoute from './components/ProtectedRoute';
-import ReactGlobeExample from './components/ReactGlobeExample';
+import RGE2 from './components/RGE2';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Settings from './pages/Settings';
@@ -12,10 +12,10 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <Navbar />
+        {/* Removed global Navbar; sidebar menu icons are used instead */}
         <Routes>
           {/* Public home (globe) view */}
-          <Route path="/" element={<ReactGlobeExample />} />
+          <Route path="/" element={<RGE2 />} />
           {/* Auth routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />

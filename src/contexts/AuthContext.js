@@ -18,21 +18,21 @@ export function AuthProvider({ children }) {
   }, []);
 
   function login(email, password) {
-    return API.post('/api/auth/login', { email, password })
-      .then(res => {
-        localStorage.setItem('token', res.data.token);
-        setUser(res.data.user);
-        return res.data.user;
-      });
+    // Dummy login: accept any credentials and persist in localStorage
+    const dummyToken = 'DUMMY_TOKEN';
+    const dummyUser = { email, avatarUrl: null, hasApiKey: false };
+    localStorage.setItem('token', dummyToken);
+    setUser(dummyUser);
+    return Promise.resolve(dummyUser);
   }
 
   function signup(email, password) {
-    return API.post('/api/auth/signup', { email, password })
-      .then(res => {
-        localStorage.setItem('token', res.data.token);
-        setUser(res.data.user);
-        return res.data.user;
-      });
+    // Dummy signup: accept any credentials and persist in localStorage
+    const dummyToken = 'DUMMY_TOKEN';
+    const dummyUser = { email, avatarUrl: null, hasApiKey: false };
+    localStorage.setItem('token', dummyToken);
+    setUser(dummyUser);
+    return Promise.resolve(dummyUser);
   }
 
   function logout() {

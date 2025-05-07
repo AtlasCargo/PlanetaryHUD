@@ -54,7 +54,9 @@ export default function Settings() {
       .finally(() => setLoading(false));
   }
 
-  if (!user) return <p>Loading...</p>;
+  // Display settings even if user context initialises to null
+  // 'user' may be null if not logged in; form will use default values
+  // Remove blocking Loading state
   return (
     <div className="max-w-xl mx-auto mt-10">
       <h1 className="text-2xl mb-4">Settings</h1>

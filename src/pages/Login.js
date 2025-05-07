@@ -46,7 +46,7 @@ export default function Login() {
     setError(null);
     login(email, password)
       .then(() => navigate('/'))
-      .catch(err => setError(err.response?.data?.error || 'Login failed'));
+      .catch(() => setError('Login failed'));
   };
 
   return (

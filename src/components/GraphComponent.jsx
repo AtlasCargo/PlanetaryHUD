@@ -68,8 +68,17 @@ export default function GraphComponent({
 
     // Check for life expectancy or population
     const isLifeExpectancy = dataset.id === 'life-expectancy';
-    const yAccessor = d => (isLifeExpectancy ? d.lifeExpectancy || d.value : d.population || d.value);
-    const yLabel = isLifeExpectancy ? 'Life Expectancy (years)' : 'Population';
+    const isIndicator = dataset.id.includes('.');
+    const yAccessor = d => {
+      if (isLifeExpectancy) return d.lifeExpectancy ?? d.value;
+      if (isIndicator)     return d.value;
+      return d.population ?? d.value;
+    };
+    const yLabel = isLifeExpectancy
+      ? 'Life Expectancy (years)'
+      : isIndicator
+        ? (dataset.title || 'Value')
+        : 'Population';
 
     const margin = { top: 40, right: 30, bottom: 60, left: 60 };
     const width = 800 - margin.left - margin.right;
@@ -206,7 +215,7 @@ export default function GraphComponent({
 
       <div className="h-full w-full pt-8">
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative w-full h-[calc(100%-20px)]">
-          <h2 className="text-2xl text-neon-blue mb-2">{dataset?.metadata?.title || 'Dataset Visualization'}</h2>
+          <h2 className="text-2xl text-neon-blue mb-2">{dataset.title || dataset?.metadata?.title || 'Dataset Visualization'}</h2>
           <p className="text-sm text-neon-purple mb-4">
             Source: {dataset?.metadata?.source || 'Unknown source'}
           </p>

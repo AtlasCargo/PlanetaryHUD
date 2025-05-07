@@ -47,3 +47,67 @@
 - Implement conditional rendering to minimize DOM updates
 - Apply throttling for real-time controls (e.g., sliders)
 - Clean up fetch requests and event listeners in useEffect returns
+
+## New Functionalities
+- GDP per capita visualization
+  - Fetch per-country GDP per capita via World Bank API with pagination support
+  - Color globe countries by GDP value using D3 color scales
+  - Interactive tooltip displaying GDP per capita for selected country and year
+  - Year range slider for animating global GDP changes over time
+- Improved data loading
+  - Full error handling and logging in `loadDataset.js`
+  - Support for ISO2 codes and world-level indicators
+
+## Chat Interface
+- Mini-chat widget in lower left panel:
+  - Always-visible input field and Send button when not in full-chat mode.
+  - Top of left div shows Chat icon ●, Hamburger menu ☰, and Home button 🏠 to toggle views.
+- Chat mode behavior:
+  - Clicking Chat icon switches left sidebar to chat history log.
+  - Center panel becomes full chat window displaying messages.
+  - Message input at bottom of chat window for sending new messages.
+- Home button returns left panel to dataset selector and center panel to globe/graph view.
+
+## Settings Interface
+- Settings view embedded in central panel (no full-page route change).
+  - Triggered by Account menu in hamburger dropdown or top-left Account icon.
+  - Renders `/pages/Settings` component inside the main view.
+  - Left sidebar header shows Home button 🏠 in settings mode for returning to home.
+  - Maintains mini-chat and globe state; mode `'settings'` added alongside `'home'` and `'chat'`.
+
+## Authentication & Login
+Implemented real authentication flow:
+
+    Server‐side (server/index.js):
+
+        1. Enabled CORS with credentials.
+        2. Synced lowdb on every request to avoid stale cache.
+        3. Added /api/auth/check-email to tell if an email already exists.
+        4. Added helper comments/logs (patched supertest) – still kept in place.
+
+    Client:
+
+        1. src/services/authClient.js – thin wrapper for:
+           • signup, login, checkEmail, getMe
+           • OAuth popup helper.
+        2. src/contexts/AuthProvider.jsx
+           • Global React context with:
+             – continueWithEmail()  (decides sign-up vs log-in)
+             – continueWithGoogle / GitHub (popup + postMessage)
+             – logout, user, token, loading
+           • Persists JWT in localStorage and bootstraps session.
+        3. Wrapped whole app with <AuthProvider> (src/index.js).
+        4. Added CORS credentials and db.read synchroniser.
+
+    Now:
+    • “Continue with Google / GitHub” hits backend /api/auth/google|github and
+    receives token via postMessage.
+    • “Continue with E-mail” first POSTs /api/auth/check-email; if exists → login,
+    else → signup.
+    • Global hook useAuth() available anywhere in the UI.
+
+    No UI changes were required; integrate hook in your sidebar/login component as:
+
+        const { continueWithEmail, continueWithGoogle } = useAuth();
+
+    Everything else (JWT handling, user state) is automatic.
