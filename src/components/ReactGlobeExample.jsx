@@ -24,6 +24,7 @@ import Settings from '../pages/Settings';
 import { getCountries, getIndicators, getIndicatorData } from '../services/worldBankApi';
 import { sendMessage } from '../services/openaiClient';
 import { AuthContext } from '../contexts/AuthContext';
+import FinancialDashboard from './FinancialDashboard'; // Import FinancialDashboard
 
 export default function ReactGlobeExample() {
   // -------------------------------
@@ -67,8 +68,9 @@ export default function ReactGlobeExample() {
     left: window.innerWidth <= 768 ? (window.innerWidth > window.innerHeight ? 15 : 80) : 20,
     right: window.innerWidth <= 768 ? (window.innerWidth > window.innerHeight ? 15 : 80) : 20
   });
-  // Mode: 'home' = globe & mini-chat; 'chat' = full chat view; 'settings' = settings view
-  const [mode, setMode] = useState('home');
+  // Mode: 'home' = globe & mini-chat; 'chat' = full chat view; 'settings' = settings view; 'financial' = financial mode
+  const [mode, setMode] = useState('home'); // modes: home, chat, settings, financial
+  const [showFinancial, setShowFinancial] = useState(false); // Add showFinancial state
   // Chat history & current conversation
   const [chatHistory, setChatHistory] = useState([]);
   const [currentConvId, setCurrentConvId] = useState(null);
@@ -256,9 +258,16 @@ export default function ReactGlobeExample() {
   };
 
   // Process dataset placeholder: use chat agent to process and display
+  // Friendly slug ➜ World-Bank indicator mapping
+  const INDICATOR_ALIASES = {
+    '6.0.GDP_usd': 'NY.GDP.MKTP.KD',          // GDP (constant 2005 $)
+    'GDP_pc_PPP_2011': 'NY.GDP.PCAP.PP.KD',  // GDP per capita, PPP (constant 2011)
+    // add more aliases as needed …
+  };
+
   const handleProcessDataset = (datasetId) => {
-    // TODO: call chat agent for processing pipeline
-    handleDatasetSelect(datasetId, 'graph');
+    const realId = INDICATOR_ALIASES[datasetId] || datasetId;
+    handleDatasetSelect(realId, 'graph');
   };
 
   // -------------------------------
@@ -709,8 +718,28 @@ export default function ReactGlobeExample() {
   const leftPanelWidth = leftHidden ? '0' : `${sidebarBaseWidth}%`;
   const rightPanelWidth = rightHidden ? '0' : `${sidebarBaseWidth}%`;
 
-  // Auth state for settings panel login status
+  // Auth state and avatars for mini chat
   const { user, logout, loginWithGoogle } = useContext(AuthContext);
+  const defaultAssistantAvatar = '/default-assistant-avatar.png';
+  // Load assistant and user avatars from storage or defaults
+  const assistantAvatarUrl = localStorage.getItem('assistantAvatarUrl') || defaultAssistantAvatar;
+  const userAvatarUrl = localStorage.getItem('avatarUrl') || user?.avatarUrl || '';
+  const [expandedAvatarUrl, setExpandedAvatarUrl] = useState(null);
+
+  const [warRoomMode, setWarRoomMode] = useState(false);
+  const [civAge, setCivAge] = useState(12000);
+  const { isLoggedIn } = useContext(AuthContext);
+
+  const [deepStateFeatures, setDeepStateFeatures] = useState([]);
+  useEffect(() => {
+    fetch('https://cdn.jsdelivr.net/npm/deepstate-map-data@latest/data/world.geo.json')
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => setDeepStateFeatures(data.features))
+      .catch(err => console.error('DeepState fetch error:', err));
+  }, []);
 
   return (
     <div className="relative flex w-screen h-screen text-gray-100 overflow-hidden font-sciFi bg-black">
@@ -721,7 +750,7 @@ export default function ReactGlobeExample() {
         <div
           style={{
             height: `${Math.min(dimensions.top, 30)}vh`,
-            minHeight: '40px',
+            minHeight: warRoomMode ? '80px' : '40px',
             left: !leftHidden ? `${sidebarWidths.left}vw` : '0',
             right: !rightHidden ? `${sidebarWidths.right}vw` : '0',
             margin: '0 5px'
@@ -730,9 +759,10 @@ export default function ReactGlobeExample() {
             glowEnabled
               ? 'bg-gradient-to-b from-neon-blue/10 to-transparent border-b border-neon-blue/50'
               : 'bg-gray-900/50 border-b border-gray-600'
-          } flex items-center justify-center z-10 backdrop-blur-lg rounded-lg transition-all duration-300`}
+          } flex flex-col items-center justify-center ${warRoomMode ? 'z-50' : 'z-10'} backdrop-blur-lg rounded-lg transition-all duration-300`}
         >
           <h1
+            onClick={() => { setMode('home'); setShowFinancial(false); setShowGraph(false); setWarRoomMode(false); }}
             className={`text-2xl sm:text-4xl md:text-6xl font-bold tracking-widest ${
               glowEnabled
                 ? 'bg-gradient-to-r from-green-400 to-blue-400 bg-clip-text text-transparent'
@@ -741,6 +771,14 @@ export default function ReactGlobeExample() {
           >
             PLANETARY HUD
           </h1>
+          {isLoggedIn && warRoomMode && (
+            <button
+              onClick={() => setWarRoomMode(false)}
+              className="mt-2 px-4 py-2 bg-red-600 text-white rounded-full animate-pulse"
+            >
+              War Room
+            </button>
+          )}
           {/* Resize handle for top bar */}
           <div
             className="resize-handle-vertical"
@@ -763,7 +801,7 @@ export default function ReactGlobeExample() {
         <div className="relative h-full flex flex-col" style={{ userSelect: isResizing.left ? 'none' : 'auto' }}>
           {!leftHidden && (
             <>
-              {/* Left Sidebar Header: Hamburger, Chat, Collapse */}
+              {/* Left Sidebar Header */}
               <div
                 className="flex justify-between items-center p-2"
                 style={{
@@ -785,39 +823,35 @@ export default function ReactGlobeExample() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
                   </button>
-                <button
-                  onClick={() => setMode(prev => prev === 'home' ? 'chat' : 'home')}
-                    className="p-1 text-white hover:text-neon-blue"
-                    aria-label="Chat"
+                  {mode === 'home' ? (
+                    <button
+                      onClick={() => setMode('chat')}
+                      className="p-1 text-white hover:text-neon-blue"
+                      aria-label="Chat"
+                    >
+                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4-.8L3 20l1.8-4.2A8.963 8.963 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setMode('home')}
+                      className="p-1 text-white hover:text-neon-blue"
+                      aria-label="Home"
+                    >
+                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1V9z" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setLeftHidden(true)}
+                    className="p-1 text-gray-400 hover:text-white"
+                    aria-label="Collapse sidebar"
                   >
-                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4-.8L3 20l1.8-4.2A8.963 8.963 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
+                    <span className="text-xl">‹</span>
                   </button>
-                  {mode === 'chat' && (
-                    <button
-                      onClick={() => setMode('home')}
-                      className="p-1 text-white hover:text-neon-blue"
-                      aria-label="Home"
-                    >
-                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5a1 1 0 01-1-1v-5h-4v5a1 1 0 01-1 1H4a1 1 0 01-1-1V9z" />
-                      </svg>
-                    </button>
-                  )}
-                  {mode === 'settings' && (
-                    <button
-                      onClick={() => setMode('home')}
-                      className="p-1 text-white hover:text-neon-blue"
-                      aria-label="Home"
-                    >
-                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5a1 1 0 01-1-1v-5h-4v5a1 1 0 01-1 1H4a1 1 0 01-1-1V9z" />
-                      </svg>
-                    </button>
-                  )}
                 </div>
                 <button
                   onClick={() => setLeftHidden(true)}
@@ -836,8 +870,30 @@ export default function ReactGlobeExample() {
                   >
                     Account
                   </button>
-                  <button onClick={() => { setMode('chat'); setHamburgerOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700">Chat</button>
-                  <button onClick={() => { setShowSettings(true); setHamburgerOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700">Other Settings</button>
+                  <button
+                    onClick={() => { setHamburgerOpen(false); setMode('chat'); }}
+                    className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700"
+                  >
+                    Chat
+                  </button>
+                  <button
+                    onClick={() => { setHamburgerOpen(false); setShowSettings(true); }}
+                    className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700"
+                  >
+                    Other Settings
+                  </button>
+                  <button
+                    onClick={() => { setHamburgerOpen(false); setShowFinancial(true); }}
+                    className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700"
+                  >
+                    Financial Mode
+                  </button>
+                  <button
+                    onClick={() => { setHamburgerOpen(false); setWarRoomMode(v => !v); }}
+                    className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700"
+                  >
+                    {warRoomMode ? 'Exit War Room' : 'War Room'}
+                  </button>
                 </div>
               )}
               {/* Sidebar content */}
@@ -952,39 +1008,35 @@ export default function ReactGlobeExample() {
                   </div>
 
                   <div className="space-y-4">
-                    <h4 className="text-xl font-bold text-gray-400">TECHNOLOGY</h4>
-                    {/* Example bars */}
-                    <div>
-                      <p className={`${glowEnabled ? 'text-neon-purple' : 'text-gray-400'} text-lg mb-2`}>
-                        Kardashev Type: 0.4
-                      </p>
-                      <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${
-                            glowEnabled
-                              ? 'bg-gradient-to-r from-neon-purple to-purple-800'
-                              : 'bg-gray-500'
-                          }`}
-                          style={{ width: '40%' }}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <p className={`${glowEnabled ? 'text-neon-red' : 'text-gray-400'} text-lg mb-2`}>
-                        Energy: 49GW/day
-                      </p>
-                      <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${
-                            glowEnabled
-                              ? 'bg-gradient-to-r from-neon-red to-red-800'
-                              : 'bg-gray-500'
-                          }`}
-                          style={{ width: '65%' }}
-                        />
-                      </div>
-                    </div>
+                    <h4 className="text-xl font-bold text-gray-400">System Stats</h4>
+                    <p className="text-lg">Age of Civilization: <span className="font-bold">{civAge}×10³y</span></p>
+                    <p className="text-lg">Population: <span className="font-bold">8×10⁹</span></p>
+                    <input
+                      type="range"
+                      min={0}
+                      max={20000}
+                      value={civAge}
+                      onChange={(e) => setCivAge(+e.target.value)}
+                      className="w-full h-2 bg-gray-700 rounded-lg mt-2"
+                    />
+                    <span className="text-sm text-neon-blue">Year: {civAge}</span>
                   </div>
+                  {isLoggedIn && (
+                    <button
+                      onClick={() => setWarRoomMode(v => !v)}
+                      className="w-full mt-4 p-2 bg-red-600 text-white rounded hover:bg-red-500"
+                    >
+                      {warRoomMode ? 'Exit War Room' : 'War Room'}
+                    </button>
+                  )}
+                  {isLoggedIn && (
+                    <button
+                      onClick={() => { setShowFinancial(true); setHamburgerOpen(false); }}
+                      className="w-full mt-2 p-2 bg-neon-blue text-black rounded hover:bg-neon-blue/80"
+                    >
+                      Financial Mode
+                    </button>
+                  )}
                 </div>
               )}
               {/* Resize handle for left sidebar */}
@@ -1022,11 +1074,11 @@ export default function ReactGlobeExample() {
 
       {/* CENTER CONTAINER */}
       <div
-        className="flex-1 flex items-center justify-center h-full"
+        className="absolute top-0 bottom-0 flex items-center justify-center"
         style={{
-          marginLeft: !leftHidden ? `${sidebarWidths.left}vw` : '0',
-          marginRight: !rightHidden ? `${sidebarWidths.right}vw` : '0',
-          transition: 'margin 0.3s ease-in-out'
+          left: !leftHidden ? `${sidebarWidths.left}vw` : '0',
+          right: !rightHidden ? `${sidebarWidths.right}vw` : '0',
+          transition: 'left 0.3s ease-in-out, right 0.3s ease-in-out'
         }}
       >
         {mode === 'chat' && (
@@ -1056,32 +1108,30 @@ export default function ReactGlobeExample() {
             rightMargin={!rightHidden ? `${sidebarWidths.right}vw` : '0'}
           />
         )}
-        {mode !== 'chat' && mode !== 'settings' && !showGraph && (
+        {mode !== 'chat' && mode !== 'settings' && !showGraph && !showFinancial && (
           <div
-            className="relative w-full md:w-[800px] aspect-square"
+            className="relative w-full h-full"
             style={{
-              maxWidth: '95vmin',
               opacity: globeOpacity,
               transition: 'opacity 0.3s ease'
             }}
           >
             {showGlobe && (
               <Globe
-                key={`globe-${showGlobeTexture}-${updateFPS}-${activeGlobeDataset}-${selectedPopulationYear || ''}-${selectedLifeExpYear || ''}-${selectedGdpYear || ''}-${isGlobeReset ? 'reset' : 'active'}`}
+                key={`globe-${warRoomMode}-${deepStateFeatures.length}-${showGlobeTexture}-${updateFPS}-${activeGlobeDataset}-${selectedPopulationYear || ''}-${selectedLifeExpYear || ''}-${selectedGdpYear || ''}-${isGlobeReset ? 'reset' : 'active'}`}
                 width={800}
                 height={800}
                 globeMaterial={computedGlobeMaterial}
                 backgroundColor="rgba(0,0,0,0)"
                 fpsLimit={updateFPS}
-                polygonsData={countries.features.filter((feat) => feat.properties.ISO_A2 !== 'AQ')}
-                polygonAltitude={d => (d === hoverD ? 0.15 : 0.1)}
-                onContextMenu={e => e.preventDefault()}
-                polygonCapColor={d => {
+                polygonsData={warRoomMode ? deepStateFeatures : countries.features.filter((feat) => feat.properties.ISO_A2 !== 'AQ')}
+                polygonAltitude={(d) => (d === hoverD ? 0.15 : 0.1)}
+                onContextMenu={(e) => e.preventDefault()}
+                polygonCapColor={(d) => {
+                  if (warRoomMode) return 'rgba(255,255,0,0.2)';
                   const name = normalizeCountryName(d.properties.ADMIN);
                   if (activeGlobeDataset === 'life-expectancy' && lifeExpData) {
-                    const rec = lifeExpData.find(
-                      item => normalizeCountryName(item.entity) === name && item.year === selectedLifeExpYear
-                    );
+                    const rec = lifeExpData.find(item => normalizeCountryName(item.entity) === name && item.year === selectedLifeExpYear);
                     if (rec) {
                       const yearData = lifeExpData.filter(item => item.year === selectedLifeExpYear);
                       const max = Math.max(...yearData.map(item => item.value));
@@ -1090,9 +1140,7 @@ export default function ReactGlobeExample() {
                     }
                   }
                   if (activeGlobeDataset === 'population' && populationData) {
-                    const rec = populationData.find(
-                      item => normalizeCountryName(item.entity) === name && item.year === selectedPopulationYear
-                    );
+                    const rec = populationData.find(item => normalizeCountryName(item.entity) === name && item.year === selectedPopulationYear);
                     if (rec) {
                       const yearData = populationData.filter(item => item.year === selectedPopulationYear);
                       const max = Math.max(...yearData.map(item => item.value));
@@ -1101,19 +1149,8 @@ export default function ReactGlobeExample() {
                     }
                   }
                   if (activeGlobeDataset === 'NY.GDP.PCAP.PP.KD' && gdpData) {
-                    console.log('Polygon dataset GDP:', d.properties.ADMIN, d.properties.ISO_A3);
-                    console.log('GDP data count:', gdpData.length, 'Years:', gdpYears);
-                    let rec = gdpData.find(
-                      item => item.iso === d.properties.ISO_A3 && item.year === selectedGdpYear
-                    );
-                    console.log('GDP rec match:', rec);
-                    if (!rec) {
-                      // fallback by normalized name
-                      rec = gdpData.find(
-                        item => normalizeCountryName(item.entity) === name && item.year === selectedGdpYear
-                      );
-                      console.log('GDP fallback match for', name, ':', rec);
-                    }
+                    let rec = gdpData.find(item => item.iso === d.properties.ISO_A3 && item.year === selectedGdpYear);
+                    if (!rec) rec = gdpData.find(item => normalizeCountryName(item.entity) === name && item.year === selectedGdpYear);
                     if (rec) {
                       const yearData = gdpData.filter(item => item.year === selectedGdpYear);
                       const max = Math.max(...yearData.map(item => item.value));
@@ -1123,9 +1160,8 @@ export default function ReactGlobeExample() {
                   }
                   return 'rgba(200,200,200,0.01)';
                 }}
-                polygonSideColor={() => 'rgba(150,150,150,0.1)'}
-                polygonStrokeColor={d => (d === hoverD ? 'rgba(57,255,20,1)' : 'rgba(57,255,20,0.3)')}
-                onPolygonHover={handleHover}
+                polygonSideColor={(d) => (d === hoverD ? 'rgba(57,255,20,0.15)' : 'rgba(150,150,150,0.01)')}
+                polygonStrokeColor={(d) => (d === hoverD ? 'rgba(57,255,20,0.6)' : 'rgba(57,255,20,0.3)')}
                 showGraticules={showGraticules}
                 showAtmosphere={showAtmosphere}
                 onGlobeReady={onGlobeReady}
@@ -1142,6 +1178,11 @@ export default function ReactGlobeExample() {
                 <div className="text-neon-red">Error: {globeDataError}</div>
               </div>
             )}
+          </div>
+        )}
+        {mode !== 'chat' && mode !== 'settings' && !showGraph && showFinancial && (
+          <div className="relative w-full h-full overflow-auto">
+            <FinancialDashboard onExit={() => setShowFinancial(false)} />
           </div>
         )}
       </div>
@@ -1199,6 +1240,7 @@ export default function ReactGlobeExample() {
                   item => item.iso === hoverD.properties.ISO_A3 && item.year === selectedGdpYear
                 );
                 if (!rec) {
+                  // fallback by normalized name
                   rec = gdpData?.find(
                     item => normalizeCountryName(item.entity) === normalizeCountryName(hoverD.properties.ADMIN) && item.year === selectedGdpYear
                   );
@@ -1468,39 +1510,8 @@ export default function ReactGlobeExample() {
         </div>
       )}
 
-      {/* Overlay mini-chat for home mode */}
-      {mode !== 'chat' && mode !== 'settings' && !leftHidden && (
-        <div
-          className="fixed bottom-0 left-0 p-2 bg-gray-800 border-t border-gray-600 z-50"
-          style={{ width: `${sidebarWidths.left}vw` }}
-        >
-          {currentConversation.length > 0 && (
-            <div className="overflow-y-auto max-h-32 mb-2">
-              {currentConversation.map((msg, i) => (
-                <div key={i} className={`text-xs ${msg.role==='user'?'text-blue-300':'text-green-300'} mb-1`}>
-                  <strong>{msg.role==='user'?'You':'AI'}:</strong> {msg.content}
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex items-center space-x-1">
-            <input
-              className="flex-1 px-2 py-1 bg-gray-700 rounded"
-              placeholder="Type..."
-              value={miniInput}
-              onChange={e=>setMiniInput(e.target.value)}
-              onKeyDown={e=>{ if(e.key==='Enter'&&miniInput.trim()){handleChatSend(miniInput);setMiniInput('');}}}
-            />
-            <button
-              onClick={()=>{if(miniInput.trim()){handleChatSend(miniInput);setMiniInput('');}}}
-              className="px-3 py-1 bg-blue-500 rounded hover:bg-blue-400"
-            >Send</button>
-          </div>
-        </div>
-      )}
-
       {/* BOTTOM HUD */}
-      {mode !== 'chat' && mode !== 'settings' && (
+      {mode !== 'chat' && mode !== 'settings' && !showFinancial && (
         <div
           style={{
             height: `${Math.min(dimensions.bottom, 15)}vh`,
@@ -1511,14 +1522,24 @@ export default function ReactGlobeExample() {
             bottom: '5px'
           }}
           className={`fixed z-20 ${
-            glowEnabled ? 'bg-gray-800/30 border-t border-neon-red/50' : 'bg-gray-900/50 border-t border-gray-600'
-          } flex items-center justify-center backdrop-blur-lg rounded-lg transition-all duration-300`}
+            glowEnabled
+              ? 'bg-gray-800/30 border-t border-neon-red/50'
+              : 'bg-gray-900/50 border-t border-gray-600'
+          } flex items-center justify-between px-4 backdrop-blur-lg rounded-lg transition-all duration-300`}
         >
-          <div className="text-xs sm:text-sm md:text-xl flex flex-wrap gap-1 sm:gap-2 md:gap-8 p-1 sm:p-2 justify-center">
+          <div className="text-xs sm:text-sm md:text-xl flex flex-wrap gap-1 sm:gap-2 md:gap-8 p-1 sm:p-2">
             <span className="text-orange-900">⚠️ CRITICAL:</span>
             <span className="text-red-900">THERMAL</span>
             <span className="text-red-900">BIOSPHERE</span>
             <span className="text-red-900">RESOURCES</span>
+          </div>
+          <div className="flex space-x-4 ml-4">
+            <button onClick={() => setMode('settings')} className="px-2 py-1 bg-gray-800 text-white rounded hover:bg-gray-700">
+              Settings
+            </button>
+            <button onClick={() => setShowFinancial(true)} className="px-2 py-1 bg-neon-blue text-black rounded hover:bg-neon-blue/80">
+              Financial Mode
+            </button>
           </div>
           <div
             className="resize-handle-vertical"
@@ -1548,7 +1569,7 @@ export default function ReactGlobeExample() {
         <div className="relative h-full flex flex-col" style={{ userSelect: isResizing.left ? 'none' : 'auto' }}>
           {!leftHidden && (
             <>
-              {/* Left Sidebar Header: Hamburger, Chat, Collapse */}
+              {/* Left Sidebar Header */}
               <div
                 className="flex justify-between items-center p-2"
                 style={{
@@ -1570,39 +1591,35 @@ export default function ReactGlobeExample() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
                   </button>
-                <button
-                  onClick={() => setMode(prev => prev === 'home' ? 'chat' : 'home')}
-                    className="p-1 text-white hover:text-neon-blue"
-                    aria-label="Chat"
+                  {mode === 'home' ? (
+                    <button
+                      onClick={() => setMode('chat')}
+                      className="p-1 text-white hover:text-neon-blue"
+                      aria-label="Chat"
+                    >
+                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4-.8L3 20l1.8-4.2A8.963 8.963 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setMode('home')}
+                      className="p-1 text-white hover:text-neon-blue"
+                      aria-label="Home"
+                    >
+                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1V9z" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setLeftHidden(true)}
+                    className="p-1 text-gray-400 hover:text-white"
+                    aria-label="Collapse sidebar"
                   >
-                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4-.8L3 20l1.8-4.2A8.963 8.963 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
+                    <span className="text-xl">‹</span>
                   </button>
-                  {mode === 'chat' && (
-                    <button
-                      onClick={() => setMode('home')}
-                      className="p-1 text-white hover:text-neon-blue"
-                      aria-label="Home"
-                    >
-                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5a1 1 0 01-1-1v-5h-4v5a1 1 0 01-1 1H4a1 1 0 01-1-1V9z" />
-                      </svg>
-                    </button>
-                  )}
-                  {mode === 'settings' && (
-                    <button
-                      onClick={() => setMode('home')}
-                      className="p-1 text-white hover:text-neon-blue"
-                      aria-label="Home"
-                    >
-                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5a1 1 0 01-1-1v-5h-4v5a1 1 0 01-1 1H4a1 1 0 01-1-1V9z" />
-                      </svg>
-                    </button>
-                  )}
                 </div>
                 <button
                   onClick={() => setLeftHidden(true)}
@@ -1621,8 +1638,30 @@ export default function ReactGlobeExample() {
                   >
                     Account
                   </button>
-                  <button onClick={() => { setMode('chat'); setHamburgerOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700">Chat</button>
-                  <button onClick={() => { setShowSettings(true); setHamburgerOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700">Other Settings</button>
+                  <button
+                    onClick={() => { setHamburgerOpen(false); setMode('chat'); }}
+                    className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700"
+                  >
+                    Chat
+                  </button>
+                  <button
+                    onClick={() => { setHamburgerOpen(false); setShowSettings(true); }}
+                    className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700"
+                  >
+                    Other Settings
+                  </button>
+                  <button
+                    onClick={() => { setHamburgerOpen(false); setShowFinancial(true); }}
+                    className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700"
+                  >
+                    Financial Mode
+                  </button>
+                  <button
+                    onClick={() => { setHamburgerOpen(false); setWarRoomMode(v => !v); }}
+                    className="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700"
+                  >
+                    {warRoomMode ? 'Exit War Room' : 'War Room'}
+                  </button>
                 </div>
               )}
               {/* Sidebar content */}
@@ -1737,39 +1776,35 @@ export default function ReactGlobeExample() {
                   </div>
 
                   <div className="space-y-4">
-                    <h4 className="text-xl font-bold text-gray-400">TECHNOLOGY</h4>
-                    {/* Example bars */}
-                    <div>
-                      <p className={`${glowEnabled ? 'text-neon-purple' : 'text-gray-400'} text-lg mb-2`}>
-                        Kardashev Type: 0.4
-                      </p>
-                      <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${
-                            glowEnabled
-                              ? 'bg-gradient-to-r from-neon-purple to-purple-800'
-                              : 'bg-gray-500'
-                          }`}
-                          style={{ width: '40%' }}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <p className={`${glowEnabled ? 'text-neon-red' : 'text-gray-400'} text-lg mb-2`}>
-                        Energy: 49GW/day
-                      </p>
-                      <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${
-                            glowEnabled
-                              ? 'bg-gradient-to-r from-neon-red to-red-800'
-                              : 'bg-gray-500'
-                          }`}
-                          style={{ width: '65%' }}
-                        />
-                      </div>
-                    </div>
+                    <h4 className="text-xl font-bold text-gray-400">System Stats</h4>
+                    <p className="text-lg">Age of Civilization: <span className="font-bold">{civAge}×10³y</span></p>
+                    <p className="text-lg">Population: <span className="font-bold">8×10⁹</span></p>
+                    <input
+                      type="range"
+                      min={0}
+                      max={20000}
+                      value={civAge}
+                      onChange={(e) => setCivAge(+e.target.value)}
+                      className="w-full h-2 bg-gray-700 rounded-lg mt-2"
+                    />
+                    <span className="text-sm text-neon-blue">Year: {civAge}</span>
                   </div>
+                  {isLoggedIn && (
+                    <button
+                      onClick={() => setWarRoomMode(v => !v)}
+                      className="w-full mt-4 p-2 bg-red-600 text-white rounded hover:bg-red-500"
+                    >
+                      {warRoomMode ? 'Exit War Room' : 'War Room'}
+                    </button>
+                  )}
+                  {isLoggedIn && (
+                    <button
+                      onClick={() => { setShowFinancial(true); setHamburgerOpen(false); }}
+                      className="w-full mt-2 p-2 bg-neon-blue text-black rounded hover:bg-neon-blue/80"
+                    >
+                      Financial Mode
+                    </button>
+                  )}
                 </div>
               )}
               {/* Resize handle for left sidebar */}

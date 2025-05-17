@@ -185,12 +185,14 @@ export default function GlobeComponent({
       alpha: true,
       premultipliedAlpha: false
     });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(1);
+    // Render full container width (square)
+    const widthPx = containerRef.current?.clientWidth || window.innerWidth;
+    renderer.setSize(widthPx, widthPx);
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
     renderer.setClearColor(0x000000, 0);
     containerRef.current.appendChild(renderer.domElement);
 
-    const camera = new THREE.PerspectiveCamera(60, width / height);
+    const camera = new THREE.PerspectiveCamera(60, widthPx / widthPx);
     camera.position.set(0, 0, 250);
     camera.lookAt(scene.position);
 
@@ -343,6 +345,21 @@ export default function GlobeComponent({
       Object.assign(globe.globeMaterial, { ...globeMaterial, needsUpdate: true });
     }
 
+    // Handle resize to fill container and maintain correct aspect ratio
+    const handleResize = () => {
+      const width = containerRef.current?.clientWidth || window.innerWidth;
+      const height = containerRef.current?.clientHeight || window.innerHeight;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+    window.addEventListener('resize', handleResize);
+    // Initial sizing to fit container
+    handleResize();
+    // Observe container resize to maintain square aspect when container changes
+    const resizeObserver = new ResizeObserver(handleResize);
+    if (containerRef.current) resizeObserver.observe(containerRef.current);
+
     return () => {
       if (fpsLimit <= 1) {
         clearInterval(animationFrameId.current);
@@ -350,6 +367,9 @@ export default function GlobeComponent({
       } else {
         cancelAnimationFrame(animationFrameId.current);
       }
+      window.removeEventListener('resize', handleResize);
+      // Cleanup resize observer
+      if (resizeObserver) resizeObserver.disconnect();
       renderer.dispose();
       controls.dispose();
       renderer.domElement.removeEventListener('mousemove', onMouseMove);
@@ -359,5 +379,5 @@ export default function GlobeComponent({
     };
   }, []);
 
-  return <div ref={containerRef} style={{ background: backgroundColor }} />;
+  return <div ref={containerRef} className="w-full h-full" style={{ background: backgroundColor }} />;
 }

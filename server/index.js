@@ -37,6 +37,23 @@ if (!isTest && haveOauthConfig) {
 }
 const cors = require('cors');
 const axios = require('axios');
+const cheerio = require('cheerio');
+// FMP fallback config
+const FMP_BASE_URL = 'https://financialmodelingprep.com/api/v3';
+const FMP_API_KEY = process.env.FMP_API_KEY || 'demo';
+// Map tickers to MacroTrends slugs
+const symbolSlugMap = {
+  AAPL: 'apple',
+  MSFT: 'microsoft',
+  NVDA: 'nvidia',
+  GOOGL: 'alphabet',
+  AMZN: 'amazon',
+  TSLA: 'tesla',
+  META: 'meta',
+  JPM: 'jpmorgan',
+  UNH: 'unitedhealth',
+  V: 'visa'
+};
 // Base URL for OWID API; can be overridden via environment
 // Base URLs for OWID API and CDN (per‑dataset metadata)
 const OWID_API_BASE = process.env.OWID_API_BASE || 'https://ourworldindata.org';
@@ -67,6 +84,8 @@ const CryptoJS = require('crypto-js');
  * @param {number} [options.num_results]  How many top results to return (default 3).
  * @param {string|null} [options.domain_filter] Narrow results to a domain.
  * @param {string|null} [options.sort_by]  One of relevance | date | popularity | alphabetical.
+ *
+ * @returns {Promise<Array<{ id, title, excerpt, topic }>>}
  */
 function searchKnowledgeBase(query, options = {}) {
   const {
@@ -1170,6 +1189,49 @@ app.post('/api/responses', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Scrape market cap data with fallback to FMP
+app.get('/api/scrape/marketcap/:symbol', async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const slug = symbolSlugMap[symbol] || symbol.toLowerCase();
+  const url = `https://www.macrotrends.net/stocks/charts/${symbol}/${slug}/market-cap`;
+  let series = [];
+  // Try HTML table scrape
+  try {
+    const { data: html } = await axios.get(url);
+    const $ = cheerio.load(html);
+    $('table.historical_data_table.table tbody tr').each((i, el) => {
+      const tds = $(el).find('td');
+      const year = parseInt(tds.eq(0).text().trim());
+      const valText = tds.eq(1).text().trim().replace(/[$,]/g, '');
+      const value = parseFloat(valText);
+      if (!isNaN(year) && !isNaN(value)) series.push({ year, value });
+    });
+    if (series.length) {
+      series.sort((a, b) => a.year - b.year);
+      return res.json(series);
+    }
+    console.warn(`Scrape returned no data for ${symbol}, falling back to FMP`);
+  } catch (err) {
+    console.error(`Scrape error for ${symbol}`, err);
+  }
+  // Fallback to Financial Modeling Prep API
+  if (FMP_API_KEY === 'demo') {
+    return res.status(400).json({ error: 'No valid FMP_API_KEY provided. Set FMP_API_KEY in .env to enable fallback.' });
+  }
+  try {
+    const fmpRes = await axios.get(`${FMP_BASE_URL}/historical-market-capitalization/${symbol}`, {
+      params: { apikey: FMP_API_KEY }
+    });
+    const fmpSeries = fmpRes.data
+      .map(d => ({ year: +d.date.slice(0, 4), value: +d.marketCap }))
+      .sort((a, b) => a.year - b.year);
+    return res.json(fmpSeries);
+  } catch (err) {
+    console.error(`FMP fallback error for ${symbol}`, err);
+    return res.status(500).json({ error: err.message });
   }
 });
 

@@ -11,9 +11,17 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      API.get('/api/user')
-        .then(res => setUser(res.data))
-        .catch(() => logout());
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        setUser(JSON.parse(storedUser));
+      } else {
+        API.get('/api/user')
+          .then(res => {
+            setUser(res.data);
+            localStorage.setItem('user', JSON.stringify(res.data));
+          })
+          .catch(() => logout());
+      }
     }
   }, []);
 
@@ -23,6 +31,7 @@ export function AuthProvider({ children }) {
     const dummyUser = { email, avatarUrl: null, hasApiKey: false };
     localStorage.setItem('token', dummyToken);
     setUser(dummyUser);
+    localStorage.setItem('user', JSON.stringify(dummyUser));
     return Promise.resolve(dummyUser);
   }
 
@@ -32,12 +41,14 @@ export function AuthProvider({ children }) {
     const dummyUser = { email, avatarUrl: null, hasApiKey: false };
     localStorage.setItem('token', dummyToken);
     setUser(dummyUser);
+    localStorage.setItem('user', JSON.stringify(dummyUser));
     return Promise.resolve(dummyUser);
   }
 
   function logout() {
     // Clear user session
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUser(null);
   }
   
@@ -82,6 +93,7 @@ export function AuthProvider({ children }) {
           // Save token and update user context
           localStorage.setItem('token', data.token);
           setUser(data.user);
+          localStorage.setItem('user', JSON.stringify(data.user));
           resolve(data.user);
         } else {
           reject(new Error('Google login failed'));
@@ -125,6 +137,7 @@ export function AuthProvider({ children }) {
         } else if (data.token && data.user) {
           localStorage.setItem('token', data.token);
           setUser(data.user);
+          localStorage.setItem('user', JSON.stringify(data.user));
           resolve(data.user);
         } else {
           reject(new Error('GitHub login failed'));
@@ -138,6 +151,8 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider
       value={{
         user,
+        // derived flag for easier checks
+        isLoggedIn: !!user,
         login,
         signup,
         logout,
