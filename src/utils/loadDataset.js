@@ -1,5 +1,8 @@
 import { csv } from 'd3-fetch';
 
+// Only log debug information during development builds
+const isDev = process.env.NODE_ENV !== 'production';
+
 /**
  * loadDataset function: Fetches data based on the dataset ID.
  * Make sure that the dataset id passed here exactly matches one of our cases.
@@ -8,7 +11,9 @@ import { csv } from 'd3-fetch';
  * @returns {Promise<Array>|null} - Processed data or null on error.
  */
 export const loadDataset = async (datasetID) => {
-  console.log("loadDataset called with datasetID:", datasetID);
+  if (isDev) {
+    console.log("loadDataset called with datasetID:", datasetID);
+  }
   switch (datasetID) {
     case 'population':
       return await loadPopulationData();
@@ -29,7 +34,9 @@ export const loadPopulationData = async () => {
     
     // Extract all unique entities (regions/countries)
     const entities = [...new Set(rawData.map(d => d.Entity))];
-    console.log("Available entities:", entities.slice(0, 20));
+    if (isDev) {
+      console.log("Available entities:", entities.slice(0, 20));
+    }
     
     // Map population data - include all entities, not just World
     const filteredData = rawData
@@ -60,7 +67,9 @@ export const loadLifeExpectancyData = async () => {
     // Remove the country filter so we get all the rows.
     const url = "https://ourworldindata.org/grapher/life-expectancy.csv?csvType=filtered&time=1800..2023";
     const rawData = await csv(url);
-    console.log("Raw life expectancy data sample: ", rawData[0]);
+    if (isDev) {
+      console.log("Raw life expectancy data sample: ", rawData[0]);
+    }
     
     // Determine the key containing life expectancy data by searching for "life expectancy" in the header.
     const lifeExpKey = Object.keys(rawData[0]).find(key => key.toLowerCase().includes("life expectancy"));
@@ -71,7 +80,9 @@ export const loadLifeExpectancyData = async () => {
     
     // See which entities are available in the data.
     const entities = Array.from(new Set(rawData.map(d => d.Entity)));
-    console.log("Entities in life expectancy data:", entities.slice(0, 20));
+    if (isDev) {
+      console.log("Entities in life expectancy data:", entities.slice(0, 20));
+    }
     
     // Process the raw CSV for all entities: convert fields to numbers,
     // filter out any invalid rows, and sort by year.
