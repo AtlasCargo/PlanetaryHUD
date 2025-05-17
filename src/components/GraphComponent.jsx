@@ -172,7 +172,7 @@ export default function GraphComponent({
         animate={{ opacity: 1 }}
         className="text-neon-red p-4 bg-black/80 rounded-lg"
       >
-        <p>⚠️ No valid data found.</p>
+        <p>⚠ No data available.</p>️ No valid data found.</p>
       </motion.div>
     );
   }
