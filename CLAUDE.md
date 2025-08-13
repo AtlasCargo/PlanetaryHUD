@@ -1,8 +1,10 @@
 # CLAUDE.md - Development Guide
 
 ## Build & Development Commands
-- `yarn start` - Start development server
-- `yarn build` - Build for production
+- `npm run dev` - Run backend (Express) and frontend together
+- `npm start` - Start frontend dev server only
+- `npm run start-server` - Start backend server only
+- `npm run build` - Build for production
 
 ## Project Technology Stack
 - React.js 18 with functional components & hooks

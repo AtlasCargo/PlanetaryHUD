@@ -22,7 +22,7 @@ import { loadDataset, getAvailableDatasets } from '../utils/loadDataset';
 import ChatWindow from './ChatWindow';
 import Settings from '../pages/Settings';
 import { getCountries, getIndicators, getIndicatorData } from '../services/worldBankApi';
-import { sendMessage } from '../services/openaiClient';
+import { sendMessage, setApiKey } from '../services/openaiClient';
 import { AuthContext } from '../contexts/AuthContext';
 import FinancialDashboard from './FinancialDashboard'; // Import FinancialDashboard
 
@@ -79,11 +79,56 @@ export default function ReactGlobeExample() {
   const [model] = useState('o4-mini');
   // Mini chat input
   const [miniInput, setMiniInput] = useState('');
+  const [miniKeyInput, setMiniKeyInput] = useState('');
+  const [hasKey, setHasKey] = useState(!!(localStorage.getItem('openai_api_key') || process.env.REACT_APP_OPENAI_API_KEY));
+  const saveMiniKey = () => { setApiKey(miniKeyInput); setHasKey(true); };
   const [datasetQuery, setDatasetQuery] = useState('');
   const [datasetResults, setDatasetResults] = useState([]);
   const [countryQuery, setCountryQuery] = useState('');
   const [countryList, setCountryList] = useState([]);
   const [datasetSearchResults, setDatasetSearchResults] = useState([]);
+  // Mini Chat dragging within left sidebar content
+  const leftSidebarContentRef = useRef(null);
+  const miniChatRef = useRef(null);
+  const [miniDrag, setMiniDrag] = useState({ dragging: false, floating: false, x: 0, y: 0, startX: 0, startY: 0 });
+
+  const startMiniDrag = useCallback((e) => {
+    if (!leftSidebarContentRef.current || !miniChatRef.current) return;
+    const parentRect = leftSidebarContentRef.current.getBoundingClientRect();
+    const elRect = miniChatRef.current.getBoundingClientRect();
+    // If not floating yet, initialize position from current layout
+    const initX = miniDrag.floating ? miniDrag.x : elRect.left - parentRect.left;
+    const initY = miniDrag.floating ? miniDrag.y : elRect.top - parentRect.top + leftSidebarContentRef.current.scrollTop;
+    setMiniDrag({ dragging: true, floating: true, x: initX, y: initY, startX: e.clientX - initX, startY: e.clientY - initY });
+    e.preventDefault();
+  }, [miniDrag.floating, miniDrag.x, miniDrag.y]);
+
+  useEffect(() => {
+    if (!miniDrag.dragging) return;
+    const onMove = (ev) => {
+      if (!leftSidebarContentRef.current) return;
+      const parent = leftSidebarContentRef.current;
+      const el = miniChatRef.current;
+      const elRect = el ? el.getBoundingClientRect() : { width: 240, height: 120 };
+      // Desired position relative to parent
+      let nx = ev.clientX - miniDrag.startX;
+      let ny = ev.clientY - miniDrag.startY + parent.scrollTop; // account for scroll
+      // Clamp within bounds
+      const margin = 8; // bounds padding for left/right/top/bottom
+      const maxX = Math.max(margin, parent.clientWidth - elRect.width - margin);
+      const maxY = Math.max(margin, parent.scrollHeight - elRect.height - margin);
+      nx = Math.min(Math.max(margin, nx), maxX);
+      ny = Math.min(Math.max(margin, ny), maxY);
+      setMiniDrag((s) => ({ ...s, x: nx, y: ny }));
+    };
+    const onUp = () => setMiniDrag((s) => ({ ...s, dragging: false }));
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, [miniDrag.dragging, miniDrag.startX, miniDrag.startY]);
 
   useEffect(() => {
     const saved = localStorage.getItem('chatHistory');
@@ -237,21 +282,36 @@ export default function ReactGlobeExample() {
 
   // Chat send handler
   const handleChatSend = async (content) => {
+    // Ensure there is an active conversation ID (supports mini chat in non-chat modes)
+    let convId = currentConvId;
+    let createdNew = false;
+    if (!convId) {
+      convId = Date.now().toString();
+      const newConv = { id: convId, messages: [] };
+      setChatHistory(prev => [newConv, ...prev]);
+      setCurrentConvId(convId);
+      setCurrentConversation([]);
+      setApiError(null);
+      createdNew = true;
+    }
+
     // append user message
     const userMsg = { role: 'user', content, createdAt: Date.now() };
-    const updated = [...currentConversation, userMsg];
+    const baseMessages = createdNew ? [] : currentConversation;
+    const updated = [...baseMessages, userMsg];
     setCurrentConversation(updated);
     // persist to history
-    setChatHistory(hist => {
-      if (!currentConvId) return hist;
-      return hist.map(c => c.id === currentConvId ? { ...c, messages: updated } : c);
-    });
+    setChatHistory(hist => (
+      hist.map(c => c.id === convId ? { ...c, messages: updated } : c)
+    ));
     try {
       const ai = await sendMessage(updated, model);
       const aiMsg = { role: ai.role, content: ai.content, createdAt: Date.now() };
       const updated2 = [...updated, aiMsg];
       setCurrentConversation(updated2);
-      setChatHistory(hist => hist.map(c => c.id === currentConvId ? { ...c, messages: updated2 } : c));
+      setChatHistory(hist => (
+        hist.map(c => c.id === convId ? { ...c, messages: updated2 } : c)
+      ));
     } catch (err) {
       setApiError(err.message);
     }
@@ -787,11 +847,8 @@ export default function ReactGlobeExample() {
           />
         </div>
       )}
-      {/* LEFT SIDEBAR */}
       <div
-        className={`fixed top-0 left-0 h-full z-30 ${
-          leftHidden ? '-translate-x-full' : 'translate-x-0'
-        } backdrop-blur-lg rounded-r-lg`}
+        className={`hidden`}
         style={{
           width: `${sidebarWidths.left}vw`,
           backgroundColor: 'rgba(0, 0, 0, 0.3)',
@@ -823,6 +880,17 @@ export default function ReactGlobeExample() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
                   </button>
+                   {(warRoomMode || showFinancial || mode === 'financial') && (
+                     <button
+                       onClick={() => { setMode('home'); setShowFinancial(false); setShowGraph(false); setWarRoomMode(false); }}
+                       className="p-1 text-white hover:text-neon-blue"
+                       aria-label="Home"
+                     >
+                       <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1V9z" />
+                       </svg>
+                     </button>
+                   )}
                   {mode === 'home' ? (
                     <button
                       onClick={() => setMode('chat')}
@@ -914,6 +982,68 @@ export default function ReactGlobeExample() {
                 </div>
               ) : (
                 <div className="flex-1 overflow-y-auto">
+                  {/* Mini Chat (visible for all modes except 'chat') */}
+                  <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-bold text-neon-blue">Mini Chat</h3>
+                      <button
+                        onClick={() => setMode('chat')}
+                        className="text-xs text-neon-blue hover:underline"
+                      >Open</button>
+                    </div>
+                    {!hasKey ? (
+                      <div className="space-y-2">
+                        <input
+                          type="password"
+                          className="w-full p-2 rounded bg-gray-800 text-white"
+                          placeholder="Enter OpenAI API Key"
+                          value={miniKeyInput}
+                          onChange={(e) => setMiniKeyInput(e.target.value)}
+                        />
+                        <button
+                          onClick={saveMiniKey}
+                          className="w-full px-3 py-1 bg-neon-blue text-black rounded"
+                        >Save Key</button>
+                      </div>
+                    ) : (
+                      <>
+                        <ul className="space-y-1 mb-2 max-h-24 overflow-auto text-xs">
+                          {currentConversation.slice(-3).map((m, i) => (
+                            <li key={i} className="flex items-start gap-1">
+                              <span className="shrink-0 text-gray-400">{m.role === 'assistant' ? 'AI:' : 'You:'}</span>
+                              <span className="flex-1 min-w-0 break-words overflow-hidden">{m.content}</span>
+                            </li>
+                          ))}
+                          {currentConversation.length === 0 && (
+                            <li className="text-gray-400 text-xs">Start the conversation...</li>
+                          )}
+                        </ul>
+                        <div className="flex">
+                          <input
+                            className="flex-1 p-1 rounded-l bg-gray-800 text-white border border-gray-700"
+                            value={miniInput}
+                            onChange={(e) => setMiniInput(e.target.value)}
+                            placeholder="Ask..."
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && miniInput.trim()) {
+                                handleChatSend(miniInput.trim());
+                                setMiniInput('');
+                              }
+                            }}
+                          />
+                          <button
+                            className="px-2 bg-neon-blue text-black rounded-r disabled:opacity-50"
+                            disabled={!miniInput.trim()}
+                            onClick={() => {
+                              if (!miniInput.trim()) return;
+                              handleChatSend(miniInput.trim());
+                              setMiniInput('');
+                            }}
+                          >Send</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                   {renderDatasetSelector()}
                   {/* Unified Dataset/Country Search */}
                   <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 mb-4">
@@ -1037,6 +1167,74 @@ export default function ReactGlobeExample() {
                       Financial Mode
                     </button>
                   )}
+                  {/* Push content up so Mini Chat sits at the bottom by default */}
+                  <div className="flex-1" />
+                  {/* Mini Chat (visible for all modes except 'chat') - at bottom by default, draggable when grabbed */}
+                  <div
+                    ref={miniChatRef}
+                    className={`${miniDrag.floating ? 'z-50' : ''} w-full p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 box-border overflow-hidden`}
+                    style={miniDrag.floating ? { position: 'absolute', left: miniDrag.x, top: miniDrag.y, right: 8 } : undefined}
+                  >
+                    <div className="flex items-center justify-between mb-2 cursor-move select-none" onMouseDown={startMiniDrag}>
+                      <h3 className="text-sm font-bold text-neon-blue">Mini Chat</h3>
+                      <button
+                        onClick={() => setMode('chat')}
+                        className="text-xs text-neon-blue hover:underline"
+                      >Open</button>
+                    </div>
+                    {!hasKey ? (
+                      <div className="space-y-2">
+                        <input
+                          type="password"
+                          className="w-full p-2 rounded bg-gray-800 text-white"
+                          placeholder="Enter OpenAI API Key"
+                          value={miniKeyInput}
+                          onChange={(e) => setMiniKeyInput(e.target.value)}
+                        />
+                        <button
+                          onClick={saveMiniKey}
+                          className="w-full px-3 py-1 bg-neon-blue text-black rounded"
+                        >Save Key</button>
+                      </div>
+                    ) : (
+                      <>
+                        <ul className="space-y-1 mb-2 max-h-24 overflow-auto text-xs">
+                          {currentConversation.slice(-3).map((m, i) => (
+                            <li key={i} className="flex">
+                              <span className="mr-1 text-gray-400">{m.role === 'assistant' ? 'AI:' : 'You:'}</span>
+                              <span className="truncate">{m.content}</span>
+                            </li>
+                          ))}
+                          {currentConversation.length === 0 && (
+                            <li className="text-gray-400 text-xs">Start the conversation...</li>
+                          )}
+                        </ul>
+                        <div className="flex">
+                          <input
+                            className="flex-1 p-1 rounded-l bg-gray-800 text-white border border-gray-700"
+                            value={miniInput}
+                            onChange={(e) => setMiniInput(e.target.value)}
+                            placeholder="Ask..."
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && miniInput.trim()) {
+                                handleChatSend(miniInput.trim());
+                                setMiniInput('');
+                              }
+                            }}
+                          />
+                          <button
+                            className="px-2 bg-neon-blue text-black rounded-r disabled:opacity-50"
+                            disabled={!miniInput.trim()}
+                            onClick={() => {
+                              if (!miniInput.trim()) return;
+                              handleChatSend(miniInput.trim());
+                              setMiniInput('');
+                            }}
+                          >Send</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
               {/* Resize handle for left sidebar */}
@@ -1061,7 +1259,7 @@ export default function ReactGlobeExample() {
           />
         </div>
       </div>
-      {leftHidden && (
+      {leftHidden && false && (
         <button
           onClick={() => setLeftHidden(false)}
           className="fixed left-1 top-1/2 -translate-y-1/2 bg-gray-800/90 p-2 sm:p-3
@@ -1180,12 +1378,13 @@ export default function ReactGlobeExample() {
             )}
           </div>
         )}
-        {mode !== 'chat' && mode !== 'settings' && !showGraph && showFinancial && (
+        {(mode === 'financial' || showFinancial) && mode !== 'chat' && mode !== 'settings' && !showGraph && (
           <div className="relative w-full h-full overflow-auto">
             <FinancialDashboard onExit={() => setShowFinancial(false)} />
           </div>
         )}
       </div>
+      
 
       {/* Tooltip */}
       {hoverD && (
@@ -1591,6 +1790,17 @@ export default function ReactGlobeExample() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
                   </button>
+                   {(warRoomMode || showFinancial || mode === 'financial') && (
+                     <button
+                       onClick={() => { setMode('home'); setShowFinancial(false); setShowGraph(false); setWarRoomMode(false); }}
+                       className="p-1 text-white hover:text-neon-blue"
+                       aria-label="Home"
+                     >
+                       <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1V9z" />
+                       </svg>
+                     </button>
+                   )}
                   {mode === 'home' ? (
                     <button
                       onClick={() => setMode('chat')}
@@ -1681,7 +1891,7 @@ export default function ReactGlobeExample() {
                   </ul>
                 </div>
               ) : (
-                <div className="flex-1 overflow-y-auto">
+                <div ref={leftSidebarContentRef} className="flex-1 overflow-y-auto relative flex flex-col">
                   {renderDatasetSelector()}
                   {/* Unified Dataset/Country Search */}
                   <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 mb-4">
@@ -1805,6 +2015,72 @@ export default function ReactGlobeExample() {
                       Financial Mode
                     </button>
                   )}
+                  {/* Mini Chat (visible for all modes except 'chat') - at bottom by default (sticky), draggable when grabbed */}
+                  <div
+                    ref={miniChatRef}
+                    className={`${miniDrag.floating ? 'z-50' : 'sticky bottom-2'} p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 m-2`}
+                    style={miniDrag.floating ? { position: 'absolute', left: miniDrag.x, top: miniDrag.y, right: 'auto' } : undefined}
+                  >
+                    <div className="flex items-center justify-between mb-2 cursor-move select-none" onMouseDown={startMiniDrag}>
+                      <h3 className="text-sm font-bold text-neon-blue">Mini Chat</h3>
+                      <button
+                        onClick={() => setMode('chat')}
+                        className="text-xs text-neon-blue hover:underline"
+                      >Open</button>
+                    </div>
+                    {!hasKey ? (
+                      <div className="space-y-2">
+                        <input
+                          type="password"
+                          className="w-full p-2 rounded bg-gray-800 text-white"
+                          placeholder="Enter OpenAI API Key"
+                          value={miniKeyInput}
+                          onChange={(e) => setMiniKeyInput(e.target.value)}
+                        />
+                        <button
+                          onClick={saveMiniKey}
+                          className="w-full px-3 py-1 bg-neon-blue text-black rounded"
+                        >Save Key</button>
+                      </div>
+                    ) : (
+                      <>
+                        <ul className="space-y-1 mb-2 max-h-24 overflow-auto text-xs">
+                          {currentConversation.slice(-3).map((m, i) => (
+                            <li key={i} className="flex">
+                              <span className="mr-1 text-gray-400">{m.role === 'assistant' ? 'AI:' : 'You:'}</span>
+                              <span className="truncate">{m.content}</span>
+                            </li>
+                          ))}
+                          {currentConversation.length === 0 && (
+                            <li className="text-gray-400 text-xs">Start the conversation...</li>
+                          )}
+                        </ul>
+                        <div className="flex">
+                          <input
+                            className="flex-1 p-1 rounded-l bg-gray-800 text-white border border-gray-700"
+                            value={miniInput}
+                            onChange={(e) => setMiniInput(e.target.value)}
+                            placeholder="Ask..."
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && miniInput.trim()) {
+                                handleChatSend(miniInput.trim());
+                                setMiniInput('');
+                              }
+                            }}
+                          />
+                          <button
+                            className="px-2 bg-neon-blue text-black rounded-r disabled:opacity-50"
+                            disabled={!miniInput.trim()}
+                            onClick={() => {
+                              if (!miniInput.trim()) return;
+                              handleChatSend(miniInput.trim());
+                              setMiniInput('');
+                            }}
+                          >Send</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
               {/* Resize handle for left sidebar */}

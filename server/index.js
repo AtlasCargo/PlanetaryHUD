@@ -244,6 +244,11 @@ const STATIC_DATASETS = [
 db.defaults({ users: [], datasets: [] }).write();
 
 const app = express();
+// Serve FinTech static assets so the frontend can iframe them
+const fintechDir = path.join(__dirname, '..', 'FinTech');
+if (fs.existsSync(fintechDir)) {
+  app.use('/fintech', express.static(fintechDir));
+}
 // Expose callback for testing (not used by some supertest versions)
 app.callback = app;
 // Provide a stubbed `address()` implementation in the test environment so that

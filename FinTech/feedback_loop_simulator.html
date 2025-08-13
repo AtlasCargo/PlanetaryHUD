@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FOMO/FUD Feedback Loop Simulator (Canvas)</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --ink:#e6e6e6; --muted:#9aa3b2; --accent:#5cc8ff;
+    --c1:#7ee787; --c2:#ffa657; --c3:#ff7b72; --grid:#222733;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial}
+  .wrap{display:grid;grid-template-columns:340px 1fr;gap:16px;height:100%;padding:16px;box-sizing:border-box}
+  .panel{background:var(--panel);border:1px solid #232939;border-radius:10px;padding:14px;overflow:auto}
+  h1{margin:0 0 10px;font-size:17px}
+  h2{margin:14px 0 6px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin:8px 0}
+  .row label{color:var(--ink)}
+  .row input[type="number"], .row input[type="text"]{
+    width:120px;background:#0e1117;border:1px solid #2a3243;color:var(--ink);padding:6px;border-radius:8px
+  }
+  .row input[type="range"]{width:100%}
+  .small{color:var(--muted);font-size:12px}
+  .btnbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  button{
+    background:#0e1117;border:1px solid #2a3243;color:var(--ink);padding:8px 10px;border-radius:8px;cursor:pointer
+  }
+  button.primary{border-color:var(--accent);color:#dff4ff}
+  .chartWrap{position:relative;height:100%}
+  canvas{background:#0b0d12;border:1px solid #1a2130;border-radius:10px;display:block;width:100%;height:100%}
+  .legend{position:absolute;top:10px;left:10px;background:rgba(15,17,21,.7);padding:8px 10px;border:1px solid #2a3243;border-radius:8px}
+  .dot{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:middle}
+  .line1{background:var(--c1)} .line2{background:var(--c2)} .line3{background:var(--c3)}
+  .tooltip{position:absolute;pointer-events:none;background:#0e1117;padding:8px 10px;border:1px solid #2a3243;border-radius:8px;display:none;white-space:nowrap}
+  .grid-note{position:absolute;bottom:10px;left:10px;color:var(--muted);font-size:12px}
+  a.link{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel">
+    <h1>Feedback Loop Simulator</h1>
+    <div class="small">Toy model for educational use. Not financial advice.</div>
+
+    <h2>Simulation</h2>
+    <div class="row"><label>Steps (N)</label><input id="steps" type="number" value="600" min="50" max="20000"></div>
+    <div class="row"><label>dt (years/step)</label><input id="dt" type="number" step="0.0001" value="0.004" /></div>
+    <div class="row"><label>Initial Price</label><input id="p0" type="number" step="0.01" value="100" /></div>
+    <div class="row"><label>Seed</label><input id="seed" type="number" step="1" value="42" /></div>
+
+    <h2>Baseline GBM</h2>
+    <div class="row"><label>Drift μ (annual)</label><input id="mu" type="number" step="0.001" value="0.06" /></div>
+    <div class="row"><label>Vol σ (annual)</label><input id="sigma" type="number" step="0.001" value="0.25" /></div>
+
+    <h2>Sentiment (AR(1))</h2>
+    <div class="row"><label>Persistence ρ</label><input id="rho" type="number" step="0.01" value="0.95" /></div>
+    <div class="row"><label>Shock σ<sub>S</sub></label><input id="sigmaS" type="number" step="0.01" value="0.3" /></div>
+    <div class="row"><label>Impact on drift (β<sub>μ</sub>)</label><input id="betaMu" type="number" step="0.01" value="0.4" /></div>
+    <div class="row"><label>Impact on vol (β<sub>σ</sub>)</label><input id="betaSig" type="number" step="0.01" value="0.8" /></div>
+
+    <h2>Emotional Amplification</h2>
+    <div class="row"><label>Emotional share γ</label><input id="gamma" type="number" step="0.05" value="0.6" /></div>
+    <div class="row"><label>Momentum window (EMA)</label><input id="emaN" type="number" step="1" value="10" /></div>
+    <div class="row"><label>FOMO gain (↑vol for +mom)</label><input id="kPlus" type="number" step="0.05" value="1.0" /></div>
+    <div class="row"><label>FUD gain (↑vol for −mom)</label><input id="kMinus" type="number" step="0.05" value="2.0" /></div>
+    <div class="row"><label>Drift sensitivity κ<sub>μ</sub></label><input id="kMu" type="number" step="0.05" value="0.8" /></div>
+
+    <h2>Series to Plot</h2>
+    <div class="row"><label><input id="show1" type="checkbox" checked> Baseline GBM</label><span></span></div>
+    <div class="row"><label><input id="show2" type="checkbox" checked> Sentiment-only (var-vol)</label><span></span></div>
+    <div class="row"><label><input id="show3" type="checkbox" checked> Emotional model (full)</label><span></span></div>
+
+    <div class="btnbar">
+      <button id="run" class="primary">Run once</button>
+      <button id="animate">Animate</button>
+      <button id="pause">Pause</button>
+      <button id="reset">Reset</button>
+    </div>
+    <div class="btnbar">
+      <button id="png">Save PNG</button>
+      <button id="csv">Export CSV</button>
+    </div>
+    <div class="small" style="margin-top:8px">
+      Tip: keep <em>dt ≈ 1/252 ≈ 0.004</em> for daily-ish steps.
+    </div>
+  </div>
+
+  <div class="panel chartWrap">
+    <div class="legend">
+      <div><span class="dot line1"></span>Baseline GBM</div>
+      <div><span class="dot line2"></span>Sentiment-only</div>
+      <div><span class="dot line3"></span>Emotional model</div>
+    </div>
+    <canvas id="chart"></canvas>
+    <div id="tooltip" class="tooltip"></div>
+    <div class="grid-note">Hover for values • Wheel to zoom • Drag to pan</div>
+  </div>
+</div>
+
+<script>
+/* -----------------------------------------------------------
+   Utility: seeded RNG + normal(0,1)
+----------------------------------------------------------- */
+function mulberry32(seed) {
+  let t = seed >>> 0;
+  return function() {
+    t += 0x6D2B79F5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function gaussianGen(rand) { // Box–Muller with cache
+  let spare = null;
+  return function() {
+    if (spare !== null) { const z = spare; spare = null; return z; }
+    let u=0,v=0; while(u===0)u=rand(); while(v===0)v=rand();
+    const mag = Math.sqrt(-2.0*Math.log(u));
+    const z0 = mag * Math.cos(2*Math.PI*v);
+    const z1 = mag * Math.sin(2*Math.PI*v);
+    spare = z1;
+    return z0;
+  };
+}
+
+/* -----------------------------------------------------------
+   Model pieces
+----------------------------------------------------------- */
+function simulateSeries(opts) {
+  const {
+    steps, dt, p0, mu, sigma,
+    rho, sigmaS, betaMu, betaSig,
+    gamma, emaN, kPlus, kMinus, kMu,
+    seed, which // 1:baseline, 2:sentiment-only, 3:emotional full
+  } = opts;
+
+  const rand = mulberry32(seed);
+  const z = gaussianGen(rand);
+  const prices = new Float64Array(steps);
+  const base = Math.log(p0);
+  prices[0] = p0;
+
+  // sentiment AR(1)
+  let S = 0.0;
+
+  // momentum EMA on returns (log returns)
+  const alpha = 2/(emaN+1);
+  let m = 0.0; // EMA of past log-returns
+
+  for (let t=1; t<steps; t++) {
+    // update sentiment
+    S = rho*S + sigmaS*z();
+
+    // effective parameters
+    let muEff = mu;
+    let sigEff = sigma;
+
+    if (which >= 2) {
+      // sentiment impacts both drift and vol
+      muEff = muEff + betaMu * S;                 // can be neg or pos
+      sigEff = sigEff * (1 + Math.max(0, betaSig * Math.abs(S))); // scale up vol by |S|
+    }
+
+    if (which === 3) {
+      // emotional amplification via normalized momentum mHat
+      const mHat = m / (sigma*Math.sqrt(dt) + 1e-12);
+      const pos = Math.max(0, mHat);
+      const neg = Math.max(0, -mHat);
+      // drift sensitivity (dimensionless mHat)
+      muEff = muEff + gamma * kMu * mHat;
+      // vol boost: FOMO on positive momentum, FUD on negative
+      sigEff = sigEff * (1 + gamma * (kPlus*pos + kMinus*neg));
+    }
+
+    // clamp to avoid pathological values
+    sigEff = Math.max(1e-6, Math.min(5.0, sigEff));
+
+    // GBM step in log space
+    const dW = Math.sqrt(dt)*z();
+    const dlogP = (muEff - 0.5*sigEff*sigEff)*dt + sigEff*dW;
+    const logNext = Math.log(prices[t-1]) + dlogP;
+    prices[t] = Math.max(1e-9, Math.exp(logNext));
+
+    // update momentum m as EMA of log-return
+    const r = dlogP; // log return
+    m = (1-alpha)*m + alpha*r;
+  }
+  return prices;
+}
+
+/* -----------------------------------------------------------
+   Chart (Canvas) with pan/zoom & tooltip
+----------------------------------------------------------- */
+class CanvasChart {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.series = []; // {data: Float64Array, color: string, visible: bool, name: string}
+    this.padding = {l:60,r:20,t:20,b:30};
+    this.x0 = 0; this.x1 = 100; // domain in index space
+    this.y0 = 0; this.y1 = 200; // price range
+    this.dragging = false;
+    this.last = {x:0,y:0};
+    this.tooltip = document.getElementById('tooltip');
+
+    // handle DPI
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+      this.canvas.width = Math.round(w*dpr);
+      this.canvas.height = Math.round(h*dpr);
+      this.ctx.setTransform(dpr,0,0,dpr,0,0);
+      this.draw();
+    };
+    new ResizeObserver(resize).observe(this.canvas);
+    this.canvas.addEventListener('wheel', e => { e.preventDefault(); this.zoom(e) }, {passive:false});
+    this.canvas.addEventListener('mousedown', e => this.startDrag(e));
+    window.addEventListener('mousemove', e => this.moveDrag(e));
+    window.addEventListener('mouseup', () => this.endDrag());
+    this.canvas.addEventListener('mousemove', e => this.showTooltip(e));
+    this.canvas.addEventListener('mouseleave', () => { this.tooltip.style.display = 'none'; });
+  }
+  setSeries(series){ this.series = series; this.autoscale(); this.draw(); }
+  autoscale(){
+    // Fit x to max length among visible series
+    const maxN = this.series.filter(s=>s.visible).reduce((m,s)=>Math.max(m, s.data.length), 2);
+    this.x0 = 0; this.x1 = maxN-1;
+    // y bounds from all visible
+    let lo=Infinity, hi=-Infinity;
+    this.series.forEach(s=>{
+      if(!s.visible) return;
+      for(let v of s.data){ if(v<lo) lo=v; if(v>hi) hi=v; }
+    });
+    if(!isFinite(lo)||!isFinite(hi)){ lo=0; hi=1; }
+    if(hi===lo){ hi=lo+1; }
+    const pad = (hi-lo)*0.08;
+    this.y0 = lo - pad; this.y1 = hi + pad;
+  }
+  xPix(x){ const {l,r,t,b}=this.padding; const w=this.canvas.clientWidth; return l + (x-this.x0)/(this.x1-this.x0)*(w-l-r); }
+  yPix(y){ const {l,r,t,b}=this.padding; const h=this.canvas.clientHeight; return h-b - (y-this.y0)/(this.y1-this.y0)*(h-t-b); }
+  xVal(px){ const {l,r}=this.padding; const w=this.canvas.clientWidth; return this.x0 + (px-l)/(w-l-r)*(this.x1-this.x0); }
+  yVal(py){ const {t,b}=this.padding; const h=this.canvas.clientHeight; return this.y0 + (h-b-py)/(h-t-b)*(this.y1-this.y0); }
+
+  draw(){
+    const ctx = this.ctx, W=this.canvas.clientWidth, H=this.canvas.clientHeight;
+    ctx.clearRect(0,0,W,H);
+
+    // grid
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid');
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const xTicks = 8, yTicks = 6;
+    for(let i=0;i<=xTicks;i++){
+      const xt = this.x0 + i*(this.x1-this.x0)/xTicks;
+      const xp = this.xPix(xt);
+      ctx.moveTo(xp, this.padding.t); ctx.lineTo(xp, H - this.padding.b);
+    }
+    for(let i=0;i<=yTicks;i++){
+      const yt = this.y0 + i*(this.y1-this.y0)/yTicks;
+      const yp = this.yPix(yt);
+      ctx.moveTo(this.padding.l, yp); ctx.lineTo(W - this.padding.r, yp);
+    }
+    ctx.stroke();
+
+    // axes labels
+    ctx.fillStyle = '#aab4c3'; ctx.font = '12px system-ui';
+    // y labels
+    for(let i=0;i<=yTicks;i++){
+      const yt = this.y0 + i*(this.y1-this.y0)/yTicks;
+      const yp = this.yPix(yt);
+      ctx.fillText(yt.toFixed(2), 6, yp+4);
+    }
+    // x labels
+    for(let i=0;i<=xTicks;i++){
+      const xt = this.x0 + i*(this.x1-this.x0)/xTicks;
+      const xp = this.xPix(xt);
+      ctx.fillText(Math.round(xt).toString(), xp-6, H-6);
+    }
+
+    // lines
+    const colorVars = ['--c1','--c2','--c3'];
+    const fallbacks = ['#7ee787','#ffa657','#ff7b72'];
+    this.series.forEach((s, idx) => {
+      if(!s.visible || !s.data || s.data.length<2) return;
+      const col = (getComputedStyle(document.documentElement).getPropertyValue(colorVars[idx]).trim() || fallbacks[idx]);
+      this.ctx.strokeStyle = col; this.ctx.lineWidth = 2; this.ctx.beginPath();
+      for(let i=0;i<s.data.length;i++){
+        const xp = this.xPix(i), yp = this.yPix(s.data[i]);
+        if(i===0) this.ctx.moveTo(xp,yp); else this.ctx.lineTo(xp,yp);
+      }
+      this.ctx.stroke();
+    });
+  }
+  zoom(e){
+    const factor = (e.deltaY<0)? 0.9 : 1.1;
+    const mx = e.offsetX;
+    const cx = this.xVal(mx);
+    const newSpan = (this.x1-this.x0)*factor;
+    const leftFrac = (cx - this.x0)/(this.x1-this.x0);
+    this.x0 = cx - leftFrac*newSpan;
+    this.x1 = this.x0 + newSpan;
+    // clamp
+    if(this.x0<0){ this.x1-=this.x0; this.x0=0; }
+    this.draw();
+  }
+  startDrag(e){ this.dragging=true; this.last={x:e.clientX,y:e.clientY}; }
+  moveDrag(e){
+    if(!this.dragging) return;
+    const dx = e.clientX - this.last.x;
+    const span = (this.x1-this.x0);
+    const pxSpan = this.canvas.clientWidth - this.padding.l - this.padding.r;
+    const shift = -dx/pxSpan*span;
+    this.x0 += shift; this.x1 += shift;
+    if(this.x0<0){ this.x1-=this.x0; this.x0=0; }
+    this.last={x:e.clientX,y:e.clientY};
+    this.draw();
+  }
+  endDrag(){ this.dragging=false; }
+  showTooltip(e){
+    const rect = this.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const idx = Math.round(this.xVal(x));
+    if(!isFinite(idx) || idx<0) { this.tooltip.style.display='none'; return; }
+    const rows = [];
+    this.series.forEach((s, i)=>{
+      if(!s.visible || !s.data || idx>=s.data.length) return;
+      const col = i===0?'#7ee787': i===1?'#ffa657':'#ff7b72';
+      rows.push(`<span style="color:${col}">${s.name}:</span> ${s.data[idx].toFixed(4)}`);
+    });
+    if(!rows.length){ this.tooltip.style.display='none'; return; }
+    this.tooltip.innerHTML = `<div>t = ${idx}</div>${rows.join('<br>')}`;
+    this.tooltip.style.left = (x+12)+'px';
+    this.tooltip.style.top = (y+12)+'px';
+    this.tooltip.style.display = 'block';
+  }
+  toPNG(){
+    const link = document.createElement('a');
+    link.download = 'feedback_sim.png';
+    link.href = this.canvas.toDataURL('image/png');
+    link.click();
+  }
+}
+
+/* -----------------------------------------------------------
+   Glue: UI + Simulation orchestration
+----------------------------------------------------------- */
+const el = id => document.getElementById(id);
+const chart = new CanvasChart(el('chart'));
+
+function readParams(){
+  return {
+    steps: parseInt(el('steps').value,10),
+    dt: parseFloat(el('dt').value),
+    p0: parseFloat(el('p0').value),
+    mu: parseFloat(el('mu').value),
+    sigma: parseFloat(el('sigma').value),
+    rho: parseFloat(el('rho').value),
+    sigmaS: parseFloat(el('sigmaS').value),
+    betaMu: parseFloat(el('betaMu').value),
+    betaSig: parseFloat(el('betaSig').value),
+    gamma: parseFloat(el('gamma').value),
+    emaN: Math.max(1, parseInt(el('emaN').value,10)),
+    kPlus: parseFloat(el('kPlus').value),
+    kMinus: parseFloat(el('kMinus').value),
+    kMu: parseFloat(el('kMu').value),
+    seed: parseInt(el('seed').value,10) >>> 0,
+    show1: el('show1').checked,
+    show2: el('show2').checked,
+    show3: el('show3').checked
+  };
+}
+
+function runOnce(){
+  const p = readParams();
+  const s1 = simulateSeries({...p, which:1});
+  const s2 = simulateSeries({...p, which:2});
+  const s3 = simulateSeries({...p, which:3});
+  chart.setSeries([
+    {data:s1, color:'#7ee787', visible:p.show1, name:'Baseline GBM'},
+    {data:s2, color:'#ffa657', visible:p.show2, name:'Sentiment-only'},
+    {data:s3, color:'#ff7b72', visible:p.show3, name:'Emotional model'}
+  ]);
+}
+
+let animHandle = null, frame = 0, buffers = null;
+function resetAnim(){
+  const p = readParams(); frame=0;
+  buffers = [
+    new Float64Array(p.steps),
+    new Float64Array(p.steps),
+    new Float64Array(p.steps)
+  ];
+  // prefill first point only
+  buffers[0][0]=p.p0; buffers[1][0]=p.p0; buffers[2][0]=p.p0;
+
+  // store RNGs and states per series for consistent step-by-step animation
+  state = {
+    p,
+    rand1: gaussianGen(mulberry32(p.seed+1)),
+    rand2: gaussianGen(mulberry32(p.seed+2)),
+    rand3: gaussianGen(mulberry32(p.seed+3)),
+    S2:0, S3:0, m3:0 // sentiment & momentum state for 2 and 3
+  };
+  chart.setSeries([
+    {data:buffers[0].subarray(0,1), color:'#7ee787', visible:p.show1, name:'Baseline GBM'},
+    {data:buffers[1].subarray(0,1), color:'#ffa657', visible:p.show2, name:'Sentiment-only'},
+    {data:buffers[2].subarray(0,1), color:'#ff7b72', visible:p.show3, name:'Emotional model'}
+  ]);
+}
+let state=null;
+
+function stepAnim(){
+  if(!state) return;
+  const {p} = state;
+  const {dt, mu, sigma, rho, sigmaS, betaMu, betaSig, gamma, emaN, kPlus, kMinus, kMu} = p;
+  const alpha = 2/(emaN+1);
+
+  function gbmStep(prev, muEff, sigEff, z){
+    sigEff = Math.max(1e-6, Math.min(5.0, sigEff));
+    const dlogP = (muEff - 0.5*sigEff*sigEff)*dt + sigEff*Math.sqrt(dt)*z;
+    const nxt = Math.max(1e-9, prev * Math.exp(dlogP));
+    return {nxt, r:dlogP};
+  }
+
+  // series 1: baseline
+  if(p.show1 && frame+1<p.steps){
+    const z1 = state.rand1();
+    const {nxt} = gbmStep(buffers[0][frame], mu, sigma, z1);
+    buffers[0][frame+1]=nxt;
+  }
+  // series 2: sentiment-only
+  if(p.show2 && frame+1<p.steps){
+    state.S2 = rho*state.S2 + sigmaS*state.rand2();
+    let muEff = mu + betaMu*state.S2;
+    let sigEff = sigma * (1 + Math.max(0, betaSig*Math.abs(state.S2)));
+    const {nxt} = gbmStep(buffers[1][frame], muEff, sigEff, state.rand2());
+    buffers[1][frame+1]=nxt;
+  }
+  // series 3: emotional full
+  if(p.show3 && frame+1<p.steps){
+    state.S3 = rho*state.S3 + sigmaS*state.rand3();
+    let muEff = mu + betaMu*state.S3 + gamma*kMu*state.m3;
+    let sigEff = sigma * (1 + Math.max(0, betaSig*Math.abs(state.S3)));
+    const pos = Math.max(0, state.m3);
+    const neg = Math.max(0, -state.m3);
+    sigEff = sigEff * (1 + gamma*(kPlus*pos + kMinus*neg));
+    const step = gbmStep(buffers[2][frame], muEff, sigEff, state.rand3());
+    buffers[2][frame+1]=step.nxt;
+    state.m3 = (1-alpha)*state.m3 + alpha*step.r; // update momentum EMA
+  }
+
+  frame++;
+  chart.setSeries([
+    {data:buffers[0].subarray(0, frame+1), color:'#7ee787', visible:p.show1, name:'Baseline GBM'},
+    {data:buffers[1].subarray(0, frame+1), color:'#ffa657', visible:p.show2, name:'Sentiment-only'},
+    {data:buffers[2].subarray(0, frame+1), color:'#ff7b72', visible:p.show3, name:'Emotional model'}
+  ]);
+
+  if(frame+1 >= p.steps){ cancelAnimationFrame(animHandle); animHandle=null; return; }
+  animHandle = requestAnimationFrame(stepAnim);
+}
+
+/* -----------------------------------------------------------
+   Wire up UI
+----------------------------------------------------------- */
+el('run').addEventListener('click', runOnce);
+el('animate').addEventListener('click', () => { if(animHandle) return; resetAnim(); animHandle = requestAnimationFrame(stepAnim); });
+el('pause').addEventListener('click', () => { if(animHandle){ cancelAnimationFrame(animHandle); animHandle=null; }});
+el('reset').addEventListener('click', () => { cancelAnimationFrame(animHandle); animHandle=null; resetAnim(); chart.draw(); });
+
+['show1','show2','show3'].forEach(id => el(id).addEventListener('change', () => {
+  // re-run quickly to refresh visibility
+  if(animHandle){ /* during animation, just redraw next frame */ return; }
+  runOnce();
+}));
+
+el('png').addEventListener('click', ()=>chart.toPNG());
+
+el('csv').addEventListener('click', ()=>{
+  if(!chart.series.length) return;
+  const maxN = chart.series.reduce((m,s)=>Math.max(m, s.data?.length||0), 0);
+  const headers = ['t'];
+  chart.series.forEach(s => { if(s.visible) headers.push(s.name); });
+  let csv = headers.join(',')+'\n';
+  for(let i=0;i<maxN;i++){
+    const row = [i];
+    chart.series.forEach(s => { if(s.visible) row.push( (i<s.data.length)? s.data[i] : '' ); });
+    csv += row.join(',')+'\n';
+  }
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'simulation.csv'; a.click();
+  URL.revokeObjectURL(url);
+});
+
+// initial render
+runOnce();
+</script>
+</body>
+</html>

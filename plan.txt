@@ -3,6 +3,14 @@ Reimplementation Plan for ReactGlobeExample.jsx
 
 Overview
 --------
+Progress (recent)
+-----------------
+- Docked FinTech simulator inside `src/components/FinancialDashboard.jsx` using `src/components/UI/ResizablePanel.jsx` with persisted vertical resizing.
+- Removed previous overlay iframe and resize logic from `src/components/ReactGlobeExample.jsx`.
+- Fixed import case mismatch for `ResizablePanel` (use `./UI/ResizablePanel`).
+- Development proxy enabled for `/fintech` and `/api` via `src/setupProxy.js`; iframe loads correctly.
+- Docs updated to recommend `npm run dev` / `npm start` instead of yarn.
+
 This document outlines a detailed plan to reimplement the ReactGlobeExample.jsx component with the following features:
   1. AI System Integration (o4-mini and o4-mini-high via Responses API, Google auth, persistent chat history)
   2. World Bank Data Search (search UI, dropdown of datasets, data fetching, globe visualization)

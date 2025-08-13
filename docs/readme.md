@@ -35,12 +35,12 @@ cd PlanetaryHUD
 5. Install dependencies:
    
 ```bash
-yarn install
+npm install
 ```
 7. Start the development server:
    
 ```bash
-yarn start
+npm run dev
 ```
 
 ## Usage

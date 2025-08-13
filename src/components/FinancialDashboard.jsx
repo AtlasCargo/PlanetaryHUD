@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ResizablePanel from './UI/ResizablePanel';
 import { getIndicatorData } from '../services/worldBankApi';
 import { getHistoricalMarketCap } from '../services/financialApi';
 import { Bar, Line } from 'react-chartjs-2';
@@ -226,6 +227,25 @@ export default function FinancialDashboard({ onExit }) {
           Exit Financial Mode
         </button>
       </div>
+
+      {/* FinTech Simulator (Docked, Resizable) */}
+      <div className="mb-4">
+        <div className="p-3 pb-2 text-neon-blue font-semibold">FinTech Feedback Loop Simulator</div>
+        <ResizablePanel
+          initial={{ h: 60 }}
+          min={{ h: 30 }}
+          max={{ h: 90 }}
+          persistKey="fintech-panel"
+          className="rounded-xl border border-neon-blue/20 bg-gray-900/40"
+        >
+          <iframe
+            src="/fintech/feedback_loop_simulator.html"
+            title="FinTech"
+            className="w-full h-full border-0"
+          />
+        </ResizablePanel>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 h-80">
           <h3 className="text-lg font-bold text-neon-blue mb-2">Corporate Market Cap (% GDP) - Last 15 Years</h3>
