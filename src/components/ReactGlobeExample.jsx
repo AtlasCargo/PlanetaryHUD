@@ -178,6 +178,7 @@ export default function ReactGlobeExample() {
   const [epubMeta, setEpubMeta] = useState({ title: '', author: '', isbn: '' });
   const [ideoLoading, setIdeoLoading] = useState(false);
   const [ideoError, setIdeoError] = useState('');
+  const [ideoSelectedFile, setIdeoSelectedFile] = useState(null);
   const [ideoScores, setIdeoScores] = useState([]);
   const [fileTree, setFileTree] = useState(null);
   const [ideoEnrichedMap, setIdeoEnrichedMap] = useState({}); // { key: { meta, axes } }
@@ -2302,23 +2303,54 @@ export default function ReactGlobeExample() {
                 <div className="p-4 rounded-lg border border-gray-700 bg-gray-900/40">
                   <h2 className="text-lg font-semibold mb-2">Upload Goodreads CSV</h2>
                   <p className="text-sm text-gray-400 mb-2">Upload your exported CSV of "Read" books.</p>
-                  <input type="file" accept=".csv,text/csv" onChange={(e) => {
-                    const f = e.target.files?.[0]; if (!f) return;
-                    setIdeoLoading(true); setIdeoError('');
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      try {
-                        const text = String(reader.result || '');
-                        const parsed = parseGoodreadsCsv(text);
-                        setIdeoBooks(parsed);
-                        // Persist library (server if logged-in, else local)
-                        persistLibrary(parsed);
-                      } catch (err) { setIdeoError('Failed to parse CSV'); }
-                      finally { setIdeoLoading(false); }
-                    };
-                    reader.readAsText(f);
-                  }} />
-                  {ideoLoading && <span className="ml-2 text-xs text-gray-400">Parsing…</span>}
+                  <div className="flex items-center space-x-3 mb-3">
+                    <input 
+                      type="file" 
+                      accept=".csv,text/csv" 
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]; 
+                        if (!f) return;
+                        setIdeoSelectedFile(f);
+                        setIdeoError('');
+                      }} 
+                      className="flex-1"
+                    />
+                    {ideoSelectedFile && (
+                      <button
+                        onClick={() => {
+                          if (!ideoSelectedFile) return;
+                          setIdeoLoading(true);
+                          setIdeoError('');
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            try {
+                              const text = String(reader.result || '');
+                              const parsed = parseGoodreadsCsv(text);
+                              setIdeoBooks(parsed);
+                              // Persist library (server if logged-in, else local)
+                              persistLibrary(parsed);
+                              setIdeoSelectedFile(null);
+                            } catch (err) { 
+                              setIdeoError('Failed to parse CSV'); 
+                            } finally { 
+                              setIdeoLoading(false); 
+                            }
+                          };
+                          reader.readAsText(ideoSelectedFile);
+                        }}
+                        disabled={ideoLoading}
+                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {ideoLoading ? 'Processing...' : 'Process CSV'}
+                      </button>
+                    )}
+                  </div>
+                  {ideoSelectedFile && (
+                    <div className="text-sm text-gray-400 mb-2">
+                      Selected: {ideoSelectedFile.name}
+                    </div>
+                  )}
+                  {ideoLoading && <span className="text-xs text-gray-400">Processing CSV…</span>}
                   {!!ideoError && <div className="text-xs text-neon-red mt-1">{ideoError}</div>}
                 </div>
               )}
