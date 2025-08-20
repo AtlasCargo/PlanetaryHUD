@@ -1,28 +1,22 @@
 // Main Ideologram exports - bundled directly into the project
-export { default as IdeologramWidget } from './widget/IdeologramWidget.jsx';
-export { default as useIdeologram } from './widget/useIdeologram.js';
+import IdeologramWidget from './widget/IdeologramWidget';
+import useIdeologram from './widget/useIdeologram';
+import { computeIdeologram, SAMPLE_ANCHORS } from './core/compute.js';
+import { enrichBook, mapTopicsToAxes, TOPIC_TO_AXES } from './core/enrich.js';
+import { parseGoodreadsCsv } from './core/importers/goodreads.js';
+import { enrichBookWikidata } from './core/wikidata.js';
+import { analyzeTextLexical, DEFAULT_LEXICON } from './core/text.js';
 
-// Core functionality
-export { 
+export {
+  IdeologramWidget,
+  useIdeologram,
   computeIdeologram,
-  SAMPLE_ANCHORS
-} from './core/compute.js';
-
-export { 
+  SAMPLE_ANCHORS,
   enrichBook,
   mapTopicsToAxes,
-  TOPIC_TO_AXES
-} from './core/enrich.js';
-
-export { 
-  parseGoodreadsCsv
-} from './core/importers/goodreads.js';
-
-export { 
-  enrichBookWikidata
-} from './core/wikidata.js';
-
-export { 
+  TOPIC_TO_AXES,
+  parseGoodreadsCsv,
+  enrichBookWikidata,
   analyzeTextLexical,
   DEFAULT_LEXICON
-} from './core/text.js';
+};
