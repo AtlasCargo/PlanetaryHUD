@@ -16,8 +16,6 @@
     "supertest": "^6.3.3"
   },
   "dependencies": {
-    "@ideologram/core": "file:Ideologram/packages/core",
-    "@ideologram/widget": "file:Ideologram/packages/widget",
     "@react-three/postprocessing": "^2.19.1",
     "@types/d3": "^7.4.3",
     "@types/three": "^0.172.0",
