@@ -785,6 +785,57 @@ export default function ReactGlobeExample() {
     );
   }, [fileTree]);
 
+  // Fallback CSV parser for when the main parser fails
+  const fallbackCSVParser = useCallback((csvText) => {
+    console.log('Using fallback CSV parser');
+    try {
+      const lines = csvText.split(/\r?\n/).filter(line => line.trim());
+      if (lines.length < 2) return [];
+      
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+      const books = [];
+      
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+        const book = {};
+        
+        headers.forEach((header, index) => {
+          book[header] = values[index] || '';
+        });
+        
+        // Simple logic: if it has a title and author, consider it
+        if (book['Title'] && book['Author']) {
+          const isRead = (book['Exclusive Shelf'] || '').toLowerCase() === 'read';
+          const rating = parseInt(book['My Rating']) || 0;
+          
+          if (isRead && rating > 0) {
+            books.push({
+              id: book['Book Id'] || `fallback_${i}`,
+              title: book['Title'],
+              author: book['Author'],
+              rating: rating,
+              dateRead: book['Date Read'] || null,
+              shelves: [],
+              isFiction: false,
+              readingStatus: 'read',
+              isRead: true,
+              source: 'goodreads_fallback'
+            });
+          }
+        }
+      }
+      
+      console.log('Fallback parser found', books.length, 'books');
+      return books;
+    } catch (error) {
+      console.error('Fallback parser also failed:', error);
+      return [];
+    }
+  }, []);
+
   // Helpers: persist/load Ideologram data with server fallback to localStorage
   const persistLibrary = useCallback(async (books) => {
     try {
@@ -2347,7 +2398,14 @@ export default function ReactGlobeExample() {
                                 }
                               }
                               
-                              const parsed = parseGoodreadsCsv(text);
+                              let parsed;
+                              try {
+                                parsed = parseGoodreadsCsv(text);
+                              } catch (parseError) {
+                                console.error('Primary CSV parser failed, trying fallback:', parseError);
+                                // Fallback to simple parsing
+                                parsed = fallbackCSVParser(text);
+                              }
                               console.log('Parsed books:', parsed);
                               console.log('Books with isRead=true:', parsed.filter(b => b.isRead));
                               console.log('Total books parsed:', parsed.length);
