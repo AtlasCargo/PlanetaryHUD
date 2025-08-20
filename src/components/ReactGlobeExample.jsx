@@ -3179,6 +3179,153 @@ export default function ReactGlobeExample() {
                   }}>Compute (headless)</button>
                 </div>
               </div>
+
+              {/* Data Migration Section */}
+              <div className="p-4 rounded-lg border border-gray-700 bg-gray-900/40">
+                <h2 className="text-lg font-semibold mb-2">Data Migration</h2>
+                <p className="text-sm text-gray-400 mb-3">
+                  Export your data before deployment, then import it after deployment to restore your library, scores, and assessments.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={async () => {
+                      try {
+                        const response = await API.get('/api/user/export');
+                        const data = response.data;
+                        
+                        // Create and download export file
+                        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `ideologram-export-${new Date().toISOString().split('T')[0]}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        
+                        console.log('Data exported successfully:', data);
+                      } catch (error) {
+                        console.error('Export failed:', error);
+                        setIdeoError('Failed to export data: ' + error.message);
+                      }
+                    }}
+                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                  >
+                    📤 Export Data
+                  </button>
+                  
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      
+                      try {
+                        const text = await file.text();
+                        const data = JSON.parse(text);
+                        
+                        if (!data.ideologram) {
+                          setIdeoError('Invalid export file: missing ideologram data');
+                          return;
+                        }
+                        
+                        // Import the data
+                        const response = await API.post('/api/user/import', { ideologram: data.ideologram });
+                        console.log('Data imported successfully:', response.data);
+                        
+                        // Refresh the UI with imported data
+                        if (data.ideologram.library?.books) {
+                          setIdeoBooks(data.ideologram.library.books);
+                        }
+                        if (data.ideologram.enriched?.items) {
+                          const enrichedMap = {};
+                          data.ideologram.enriched.items.forEach(item => {
+                            if (item.key) enrichedMap[item.key] = item;
+                          });
+                          setIdeoEnrichedMap(enrichedMap);
+                        }
+                        if (data.ideologram.scores?.entries) {
+                          setIdeoScores(data.ideologram.scores.entries);
+                        }
+                        if (data.ideologram.assessments?.entries) {
+                          setAssessmentHistory(data.ideologram.assessments.entries);
+                        }
+                        
+                        // Clear the file input
+                        e.target.value = '';
+                        
+                        setIdeoError(''); // Clear any previous errors
+                      } catch (error) {
+                        console.error('Import failed:', error);
+                        setIdeoError('Failed to import data: ' + error.message);
+                      }
+                    }}
+                    className="hidden"
+                    id="import-data-input"
+                  />
+                  
+                  <button
+                    onClick={() => document.getElementById('import-data-input').click()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    📥 Import Data
+                  </button>
+                  
+                  <button
+                    onClick={async () => {
+                      try {
+                        const response = await API.get('/api/user/data-summary');
+                        console.log('Data summary:', response.data);
+                        alert(`Data Summary:\n\nLibrary: ${response.data.ideologram.library.bookCount} books\nEnriched: ${response.data.ideologram.enriched.itemCount} items\nScores: ${response.data.ideologram.scores.entryCount} entries\nAssessments: ${response.data.ideologram.assessments.entryCount} entries`);
+                      } catch (error) {
+                        console.error('Failed to get data summary:', error);
+                        setIdeoError('Failed to get data summary: ' + error.message);
+                      }
+                    }}
+                    className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                  >
+                    📊 Data Summary
+                  </button>
+                </div>
+              </div>
+
+              {/* ChatGPT History Upload */}
+              <div className="p-4 rounded-lg border border-gray-700 bg-gray-900/40">
+                <h2 className="text-lg font-semibold mb-2">Upload ChatGPT History</h2>
+                <p className="text-sm text-gray-400 mb-2">Upload your ChatGPT conversation history to enhance worldview assessment</p>
+                <input type="file" accept=".json,.txt" onChange={(e) => {
+                  const f = e.target.files?.[0]; if (!f) return;
+                  setIdeoLoading(true); setIdeoError('');
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    try {
+                      const text = String(reader.result || '');
+                      const parsed = parseChatGPTHistory(text);
+                      setIdeoChatHistory(parsed);
+                      // Store chat history for worldview assessment
+                      if (user) {
+                        API.post('/api/ideologram/chat-history', { chatHistory: parsed })
+                          .then(() => console.log('Chat history saved to server'))
+                          .catch(err => {
+                            console.error('Failed to save chat history to server:', err);
+                            localStorage.setItem('ideoChatHistory', JSON.stringify(parsed));
+                          });
+                      } else {
+                        localStorage.setItem('ideoChatHistory', JSON.stringify(parsed));
+                      }
+                      setIdeoLoading(false);
+                    } catch (err) { 
+                      setIdeoError('Failed to parse ChatGPT history: ' + err.message); 
+                      setIdeoLoading(false);
+                    }
+                  };
+                  reader.readAsText(f);
+                }} />
+                {ideoLoading && <span className="ml-2 text-xs text-gray-400">Processing…</span>}
+                {!!ideoError && <div className="text-xs text-neon-red mt-1">{ideoError}</div>}
+              </div>
             </div>
           </div>
         )}

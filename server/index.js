@@ -228,7 +228,7 @@ function searchKnowledgeBase(query, options = {}) {
         // const fetch = globalThis.fetch;
 
         /**
-         * Query Our World in Data’s public search API and return the top matches.
+         * Query Our World in Data's public search API and return the top matches.
          *
          * @param {string}  query               Free‑text user query
          * @param {object}  [options]
@@ -244,7 +244,7 @@ function searchKnowledgeBase(query, options = {}) {
             domain_filter = null
           } = options
 
-          // hit the OWID “owlbot” search endpoint
+          // hit the OWID "owlbot" search endpoint
           const url = new URL('https://owlbot.owid.cloud/api/v1/search')
           url.searchParams.set('q', query)
           url.searchParams.set('limit', num_results * 3)          // ask for a few spares
@@ -260,7 +260,7 @@ function searchKnowledgeBase(query, options = {}) {
 
           let hits = Array.isArray(json?.results) ? json.results : []
 
-          // optional “domain/topic” filter
+          // optional "domain/topic" filter
           if (domain_filter) {
             const f = domain_filter.toLowerCase()
             hits = hits.filter(h => (h.topic || '').toLowerCase().includes(f))
@@ -268,7 +268,7 @@ function searchKnowledgeBase(query, options = {}) {
 
           // map to the generic structure we expose to the LLM
           const results = hits.slice(0, num_results).map(h => ({
-            id:        h.id,        // OWID’s internal page id
+            id:        h.id,        // OWID's internal page id
             title:     h.title,
             excerpt:   (h.description || '').slice(0, 200),
             topic:     h.topic,
@@ -331,9 +331,9 @@ if (isTest && typeof app.address !== 'function') {
 // In earlier iterations we attempted to mock `app.listen` while running under Jest to
 // avoid binding a real network socket. Unfortunately `supertest` relies on the
 // returned object being a fully‑functional `http.Server` instance; the minimal stub
-// caused runtime connection errors (e.g. “connect EPERM 127.0.0.1 – Local”).
+// caused runtime connection errors (e.g. "connect EPERM 127.0.0.1 – Local").
 //
-// Simply leaving Express’s original `app.listen` intact works fine in the test
+// Simply leaving Express's original `app.listen` intact works fine in the test
 // environment because `supertest` passes `0` as the port which lets the operating
 // system choose an ephemeral port. Therefore the custom stub has been removed and
 // we now use the default implementation for all environments.
@@ -431,7 +431,7 @@ if (false && isTest) {
 
     // Required by many Express helpers
     res.app = expressHandler || app;
-    res.req = null; // we’ll assign later once the mock request is built
+    res.req = null; // we'll assign later once the mock request is built
 
     res.headers = {};
     res.setHeader = (k, v) => { res.headers[k.toLowerCase()] = v; };
@@ -498,10 +498,10 @@ if (false && isTest) {
   // Ensure the SuperTest request object remains *thenable*
   // ------------------------------------------------------------------------
   // When running inside Jest the test-cases use `await request(app)…` which
-  // relies on the `.then` Promise interface exposed by SuperTest’s `Test`
+  // relies on the `.then` Promise interface exposed by SuperTest's `Test`
   // class.  Our custom `.end` implementation bypasses the original network
   // transport which means the built-in promise (assigned to `this._promise` in
-  // SuperTest’s own `then` shim) is never initialised.  We therefore patch a
+  // SuperTest's own `then` shim) is never initialised.  We therefore patch a
   // minimal replacement that defers to *our* `.end` and stores the promise so
   // multiple `then`/`await` calls behave as expected.
 
@@ -1632,3 +1632,106 @@ if (require.main === module) {
 
 // Export app for testing
 module.exports = app;
+
+// -----------------------------------------------------------------------------
+// Data persistence endpoints for cross-deployment data migration
+// -----------------------------------------------------------------------------
+
+// Export all user data (for backup before deployment)
+app.get('/api/user/export', authMiddleware, (req, res) => {
+  try {
+    const user = getUserEntry(req.user.id).value();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const exportData = {
+      userId: user.id,
+      email: user.email,
+      exportDate: new Date().toISOString(),
+      ideologram: user.ideologram || {},
+      // Include other user data as needed
+    };
+    
+    res.json(exportData);
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({ error: 'Export failed' });
+  }
+});
+
+// Import user data (for restoring after deployment)
+app.post('/api/user/import', authMiddleware, (req, res) => {
+  try {
+    const { ideologram } = req.body || {};
+    if (!ideologram) {
+      return res.status(400).json({ error: 'ideologram data required' });
+    }
+    
+    const entry = getUserEntry(req.user.id);
+    const user = entry.value() || {};
+    
+    // Merge imported data with existing data
+    user.ideologram = {
+      ...user.ideologram,
+      ...ideologram,
+      importedAt: new Date().toISOString()
+    };
+    
+    entry.assign({ ideologram: user.ideologram }).write();
+    
+    res.json({ 
+      ok: true, 
+      message: 'Data imported successfully',
+      importedData: {
+        library: ideologram.library?.books?.length || 0,
+        enriched: ideologram.enriched?.items?.length || 0,
+        scores: ideologram.scores?.entries?.length || 0,
+        assessments: ideologram.assessments?.entries?.length || 0
+      }
+    });
+  } catch (error) {
+    console.error('Import error:', error);
+    res.status(500).json({ error: 'Import failed' });
+  }
+});
+
+// Get user data summary for debugging
+app.get('/api/user/data-summary', authMiddleware, (req, res) => {
+  try {
+    const user = getUserEntry(req.user.id).value();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const ideologram = user.ideologram || {};
+    const summary = {
+      userId: user.id,
+      email: user.email,
+      lastActive: user.lastActive || null,
+      ideologram: {
+        library: {
+          bookCount: ideologram.library?.books?.length || 0,
+          lastUpdated: ideologram.library?.updatedAt || null
+        },
+        enriched: {
+          itemCount: ideologram.enriched?.items?.length || 0,
+          lastUpdated: ideologram.enriched?.updatedAt || null
+        },
+        scores: {
+          entryCount: ideologram.scores?.entries?.length || 0,
+          lastUpdated: ideologram.scores?.updatedAt || null
+        },
+        assessments: {
+          entryCount: ideologram.assessments?.entries?.length || 0,
+          lastUpdated: ideologram.assessments?.updatedAt || null
+        }
+      }
+    };
+    
+    res.json(summary);
+  } catch (error) {
+    console.error('Data summary error:', error);
+    res.status(500).json({ error: 'Failed to get data summary' });
+  }
+});
