@@ -1,0 +1,5 @@
+title,author,isbn,source,axes.econ_lr,axes.cult_libcon,axes.auth_lib,axes.global_local,axes.tech_prog,axes.epistemic_rat,weight,notes
+The Road to Serfdom,F. A. Hayek,9780226320619,Stanford Encyclopedia; author corpus,0.7,0.2,0.6,0.1,0.2,0.3,0.8,Classical liberalism; market-friendly
+The Communist Manifesto,Karl Marx; Friedrich Engels,9780140447576,Primary text; secondary literature,-0.9,-0.4,-0.2,-0.2,-0.5,-0.1,0.9,Anti-capitalist; egalitarian emphasis
+Atlas Shrugged,Ayn Rand,9780451191144,Objectivist literature; secondary sources,0.9,0.3,0.8,0.1,0.4,0.5,0.7,Pro-market; individual liberty; rationalist ethos
+The Better Angels of Our Nature,Steven Pinker,9780143122012,Author corpus; reviews,0.2,-0.2,0.3,-0.3,0.6,0.5,0.6,Data-driven optimism; cosmopolitan lean

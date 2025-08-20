@@ -1,4 +1,11 @@
 {
-  "users": [],
-  "datasets": []
+  "users": [
+    {
+      "id": "1755646404210",
+      "email": "withkey@user.com",
+      "passwordHash": "password",
+      "avatarUrl": "http://fake-avatar-url",
+      "apiKeyEncrypted": null
+    }
+  ]
 }

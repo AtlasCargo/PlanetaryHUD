@@ -7,3 +7,4 @@ build/
 .cache/
 .env
 server/.env
+Ideologram/goodreads_library_export.csv

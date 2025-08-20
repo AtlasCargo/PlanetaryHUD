@@ -8,7 +8,7 @@
     "dev": "npm run start-server & react-scripts start",
     "build": "react-scripts build",
     "pretest": "mkdir -p tmp tmp/jest_cache",
-    "test": "TMPDIR=./tmp jest --cacheDirectory=./tmp/jest_cache --passWithNoTests"
+    "test": "TMPDIR=./tmp jest --cacheDirectory=./tmp/jest_cache --passWithNoTests --runInBand"
   },
   "proxy": "http://localhost:5999",
   "devDependencies": {
@@ -16,6 +16,8 @@
     "supertest": "^6.3.3"
   },
   "dependencies": {
+    "@ideologram/core": "file:Ideologram/packages/core",
+    "@ideologram/widget": "file:Ideologram/packages/widget",
     "@react-three/postprocessing": "^2.19.1",
     "@types/d3": "^7.4.3",
     "@types/three": "^0.172.0",
@@ -25,6 +27,7 @@
     "cheerio": "^1.0.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
+    "http-proxy-middleware": "^3.0.0",
     "crypto-js": "^4.1.1",
     "d3": "^7.9.0",
     "d3-dsv": "^3.0.1",
@@ -33,15 +36,16 @@
     "express-session": "^1.17.3",
     "framer-motion": "^10.16.0",
     "jsonwebtoken": "^9.0.0",
+    "jszip": "^3.10.1",
     "lowdb": "^1.0.0",
     "openai": "^4.3.1",
     "passport": "^0.6.0",
     "passport-github2": "^0.1.12",
     "passport-google-oauth20": "^2.0.0",
     "postprocessing": "^6.36.6",
-    "react": "^18.2.0",
+    "react": "^18.3.1",
     "react-chartjs-2": "^5.3.0",
-    "react-dom": "^18.2.0",
+    "react-dom": "^18.3.1",
     "react-globe.gl": "^2.24.0",
     "react-router-dom": "^6.11.2",
     "react-scripts": "^5.0.1",
@@ -50,6 +54,10 @@
     "three": "^0.172.0",
     "three-globe": "^2.24.0",
     "tsparticles": "^2.12.0"
+  },
+  "overrides": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "browserslist": {
     "production": [
@@ -62,6 +70,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "packageManager": "yarn@4.6.0+sha512.5383cc12567a95f1d668fbe762dfe0075c595b4bfff433be478dbbe24e05251a8e8c3eb992a986667c1d53b6c3a9c85b8398c35a960587fbd9fa3a0915406728"
+  }
 }

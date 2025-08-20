@@ -1,0 +1,37 @@
+{
+  "name": "@ideologram/widget",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "npm -w @ideologram/core run build && tsc -p tsconfig.json",
+    "clean": "rimraf dist || rm -rf dist",
+    "lint": "echo 'no lint yet'",
+    "test": "echo 'no tests yet'"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@ideologram/core": "file:../core"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "rimraf": "^5.0.7",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

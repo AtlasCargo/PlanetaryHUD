@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ideologram.dev/schemas/vector.schema.json",
+  "title": "IdeologyVector",
+  "type": "object",
+  "properties": {
+    "dimensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string" },
+          "label": { "type": "string" },
+          "value": { "type": "number", "minimum": -1, "maximum": 1 }
+        },
+        "required": ["key", "value"],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "amplitude": { "type": "number", "minimum": 0, "maximum": 1 },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "sourceWeights": {
+      "type": "object",
+      "properties": {
+        "books": { "type": "number", "minimum": 0, "maximum": 1 },
+        "quiz": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "required": ["books", "quiz"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["dimensions", "amplitude", "confidence", "sourceWeights"],
+  "additionalProperties": false
+}

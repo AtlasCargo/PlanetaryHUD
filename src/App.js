@@ -7,6 +7,7 @@ import RGE2 from './components/RGE2';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Settings from './pages/Settings';
+import IdeologramPage from './pages/IdeologramPage';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           {/* Auth routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/ideologram" element={<IdeologramPage />} />
           {/* Protected user routes */}
           <Route
             path="/settings"

@@ -1,8 +1,8 @@
 // server/__tests__/user.test.js
-const request = require('supertest');
 const fs = require('fs');
 const path = require('path');
 const app = require('../index');
+const request = require('supertest');
 // Start the server for testing (binds to ephemeral port)
 let server;
 // Start server on ephemeral port for testing

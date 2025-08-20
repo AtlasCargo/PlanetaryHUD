@@ -1,5 +1,4 @@
 // server/__tests__/avatar.test.js
-const request = require('supertest');
 const fs = require('fs');
 const path = require('path');
 
@@ -13,6 +12,7 @@ jest.mock('openai', () => {
 });
 
 const app = require('../index');
+const request = require('supertest');
 // Start the server for testing (binds to ephemeral port)
 let server;
 // Start server on ephemeral port for testing

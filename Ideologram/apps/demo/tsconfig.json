@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@ideologram/core": ["../../packages/core/src"],
+      "@ideologram/widget": ["../../packages/widget/src"]
+    }
+  },
+  "include": ["src"]
+}

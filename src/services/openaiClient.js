@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 let API_KEY = process.env.REACT_APP_OPENAI_API_KEY || window.localStorage.getItem('openai_api_key');
-const DEFAULT_MODEL = 'o4-mini';
+const DEFAULT_MODEL = 'gpt-5';
 
 /**
  * Send chat messages to OpenAI Completions API using o4-mini or specified model.

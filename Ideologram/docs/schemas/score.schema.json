@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ideologram.org/schemas/score.schema.json",
+  "title": "Ideologram Score Entry",
+  "type": "object",
+  "properties": {
+    "key": { "type": "string" },
+    "id": { "type": "string" },
+    "isbn": { "type": ["string", "null"] },
+    "title": { "type": ["string", "null"] },
+    "author": { "type": ["string", "null"] },
+    "source": { "type": "string", "enum": ["epub", "text", "goodreads"] },
+    "method": { "type": "string" },
+    "reliability": { "type": "number", "minimum": 0, "maximum": 1 },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "politicalness": { "type": "number" },
+        "ideologicalness": { "type": "number" },
+        "educatedness": { "type": "number" },
+        "religiousness": { "type": "number" },
+        "romanticalness": { "type": "number" },
+        "positivity": { "type": "number" }
+      },
+      "required": ["politicalness", "ideologicalness", "educatedness", "religiousness", "romanticalness", "positivity"]
+    },
+    "axes": {
+      "type": "object",
+      "properties": {
+        "econ_lr": { "type": "number" },
+        "cult_libcon": { "type": "number" },
+        "auth_lib": { "type": "number" },
+        "global_local": { "type": "number" },
+        "tech_prog": { "type": "number" },
+        "epistemic_rat": { "type": "number" }
+      }
+    },
+    "termHits": { "type": "object", "additionalProperties": { "type": "number" } },
+    "axisTermContribs": { "type": "object", "additionalProperties": { "type": "object", "additionalProperties": { "type": "number" } } },
+    "metricTermContribs": { "type": "object", "additionalProperties": { "type": "object", "additionalProperties": { "type": "number" } } },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "required": ["source", "method", "reliability", "metrics", "axes"]
+}

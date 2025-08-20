@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ideologram.dev/schemas/book_input.schema.json",
+  "title": "BookInput",
+  "type": "object",
+  "properties": {
+    "title": { "type": "string" },
+    "author": { "type": "string" },
+    "rating": { "type": "number", "minimum": 1, "maximum": 5 },
+    "isbn": { "type": "string" },
+    "year": { "type": "integer" },
+    "representative": { "type": "number", "minimum": 0, "maximum": 1 },
+    "dateRead": { "type": "string", "format": "date" }
+  },
+  "required": ["title"],
+  "additionalProperties": false
+}

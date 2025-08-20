@@ -1,0 +1,23 @@
+{
+  "name": "ideologram-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run build -w @ideologram/core && node apps/node-demo/index.mjs",
+    "goodreads:auth": "npm run start -w @ideologram/goodreads-auth",
+    "demo:dev": "npm run build -w @ideologram/core && npm run build -w @ideologram/widget && npm run dev -w @ideologram/demo",
+    "demo:build": "npm run build -w @ideologram/core && npm run build -w @ideologram/widget && npm run build -w @ideologram/demo",
+    "scores:api": "npm run start -w @ideologram/scores-api",
+    "build": "npm run build --workspaces",
+    "clean": "npm run clean --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

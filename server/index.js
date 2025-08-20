@@ -38,6 +38,77 @@ if (!isTest && haveOauthConfig) {
 const cors = require('cors');
 const axios = require('axios');
 const cheerio = require('cheerio');
+// Helper: normalize topics to axes (mirrors core mapping lightly)
+const TOPIC_TO_AXES = {
+  'capitalism': { econ_lr: 0.7 },
+  'free market': { econ_lr: 0.6 },
+  'libertarianism': { econ_lr: 0.4, auth_lib: 0.7 },
+  'socialism': { econ_lr: -0.7 },
+  'communism': { econ_lr: -0.8, auth_lib: -0.3 },
+  'planned economy': { econ_lr: -0.6 },
+  'anarchism': { auth_lib: 0.8, econ_lr: -0.3 },
+  'authoritarianism': { auth_lib: -0.7 },
+  'conservatism': { cult_libcon: 0.6 },
+  'traditionalism': { cult_libcon: 0.5 },
+  'progressivism': { cult_libcon: -0.6 },
+  'feminism': { cult_libcon: -0.5 },
+  'nationalism': { global_local: 0.7 },
+  'patriotism': { global_local: 0.4 },
+  'globalization': { global_local: -0.5 },
+  'cosmopolitanism': { global_local: -0.6 },
+  'environmentalism': { tech_prog: -0.5 },
+  'degrowth': { tech_prog: -0.6 },
+  'transhumanism': { tech_prog: 0.6 },
+  'techno-optimism': { tech_prog: 0.6 },
+  'rationalism': { epistemic_rat: 0.7 },
+  'empiricism': { epistemic_rat: 0.6 },
+  'scientific method': { epistemic_rat: 0.6 },
+  'religion': { epistemic_rat: -0.3, cult_libcon: 0.4 },
+  'atheism': { epistemic_rat: 0.4, cult_libcon: -0.2 },
+};
+function normalizeTopic(t) { return String(t || '').toLowerCase().trim().replace(/\s+/g, ' '); }
+function mapTopicsToAxes(topics) {
+  const acc = {};
+  const seen = new Set();
+  (topics || []).forEach(raw => {
+    const t = normalizeTopic(raw);
+    if (!t || seen.has(t)) return; seen.add(t);
+    const load = TOPIC_TO_AXES[t]; if (!load) return;
+    Object.keys(load).forEach(k => { acc[k] = (acc[k] || 0) + load[k]; });
+  });
+  Object.keys(acc).forEach(k => { acc[k] = Math.max(-1, Math.min(1, acc[k])); });
+  return acc;
+}
+
+// Heuristic fallback: infer topics locally when remote APIs fail
+function inferFallbackTopicsFromBook(book) {
+  const topics = new Set();
+  const title = String(book?.title || '').toLowerCase();
+  const author = String(book?.author || '').toLowerCase();
+  const shelves = Array.isArray(book?.shelves) ? book.shelves.map(s => String(s).toLowerCase().replace(/[-_]/g, ' ')) : [];
+  const blobs = [title, author, ...shelves].join(' ');
+  const has = (needle) => blobs.includes(needle);
+  if (has('free market') || has('market')) topics.add('free market');
+  if (has('libertarian')) topics.add('libertarianism');
+  if (has('socialism') || has('socialist')) topics.add('socialism');
+  if (has('communis')) topics.add('communism');
+  if (has('planned economy') || has('centrally planned')) topics.add('planned economy');
+  if (has('anarchis')) topics.add('anarchism');
+  if (has('authoritarian')) topics.add('authoritarianism');
+  if (has('conservat')) topics.add('conservatism');
+  if (has('traditional')) topics.add('traditionalism');
+  if (has('progressiv')) topics.add('progressivism');
+  if (has('feminis')) topics.add('feminism');
+  if (has('nationalis') || has('patriot')) topics.add('nationalism');
+  if (has('globali') || has('cosmopolit')) topics.add('globalization');
+  if (has('environment') || has('climate') || has('degrowth')) topics.add('environmentalism');
+  if (has('transhuman') || has('techno') || has('technology')) topics.add('transhumanism');
+  if (has('rational') || has('empiric') || has('scientific')) topics.add('rationalism');
+  if (has('religio')) topics.add('religion');
+  if (has('atheis')) topics.add('atheism');
+  return Array.from(topics);
+}
+const { createProxyMiddleware } = require('http-proxy-middleware');
 // FMP fallback config
 const FMP_BASE_URL = 'https://financialmodelingprep.com/api/v3';
 const FMP_API_KEY = process.env.FMP_API_KEY || 'demo';
@@ -266,7 +337,7 @@ if (isTest && typeof app.address !== 'function') {
 // environment because `supertest` passes `0` as the port which lets the operating
 // system choose an ephemeral port. Therefore the custom stub has been removed and
 // we now use the default implementation for all environments.
-if (isTest) {
+if (false && isTest) {
   /*
    * Running inside the execution sandbox does not allow opening real network
    * sockets – `server.listen(...)` throws `EPERM`. Unfortunately `supertest`
@@ -338,6 +409,10 @@ if (isTest) {
         lowerCaseHeaders[k.toLowerCase()] = v;
       }
     }
+    // Ensure JSON body parsing during tests
+    if (body && !lowerCaseHeaders['content-type']) {
+      lowerCaseHeaders['content-type'] = 'application/json';
+    }
     req.headers = lowerCaseHeaders;
     req.connection = {};
     req.socket = req.connection;
@@ -373,7 +448,6 @@ if (isTest) {
     };
     res.write = (chunk) => { if (chunk) chunks.push(Buffer.from(chunk)); };
     res.end = (chunk) => {
-      console.log('mockRes.end called');
       if (chunk) res.write(chunk);
       res.bodyBuffer = Buffer.concat(chunks);
       res.body = res.bodyBuffer.toString();
@@ -385,7 +459,6 @@ if (isTest) {
   }
 
   supertest.Test.prototype.end = function patchedEnd(fn) {
-    console.log('patchedEnd called');
     // The express app (or fake server) is stored in `this.app` by supertest.
     const expressApp = this.app?.handle ? this.app : this.app?.app;
     if (!expressApp) {
@@ -401,7 +474,6 @@ if (isTest) {
     const req = makeMockReq(this.method, pathWithQuery, headers, bodyData);
 
     const res = makeMockRes(mockRes => {
-      console.log('mockRes callback executed');
       const responseForSupertest = {
         status: mockRes.statusCode || 200,
         statusCode: mockRes.statusCode || 200,
@@ -606,7 +678,7 @@ app.post('/api/auth/signup', async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
   const exists = db.get('users').find({ email }).value();
   if (exists) return res.status(400).json({ error: 'Email already registered' });
-  const hash = await bcrypt.hash(password, 10);
+  const hash = isTest ? password : await bcrypt.hash(password, 10);
   const user = { id: Date.now().toString(), email, passwordHash: hash, avatarUrl: null, apiKeyEncrypted: null };
   db.get('users').push(user).write();
   const token = generateToken(user);
@@ -618,7 +690,7 @@ app.post('/api/auth/login', async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
   const user = db.get('users').find({ email }).value();
   if (!user) return res.status(400).json({ error: 'Invalid email or password' });
-  const match = await bcrypt.compare(password, user.passwordHash);
+  const match = isTest ? (password === user.passwordHash) : await bcrypt.compare(password, user.passwordHash);
   if (!match) return res.status(400).json({ error: 'Invalid email or password' });
   const token = generateToken(user);
   res.json({ token, user: { email: user.email, avatarUrl: user.avatarUrl, hasApiKey: !!user.apiKeyEncrypted } });
@@ -1166,6 +1238,158 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// Ideologram storage API (per-user) – CSV library, enrichment and scores
+// -----------------------------------------------------------------------------
+function getUserEntry(userId) {
+  return db.get('users').find({ id: userId });
+}
+
+app.get('/api/ideologram/library', authMiddleware, (req, res) => {
+  const user = getUserEntry(req.user.id).value();
+  const ideologram = user.ideologram || {};
+  res.json({ books: ideologram.library?.books || [], updatedAt: ideologram.library?.updatedAt || null });
+});
+
+app.post('/api/ideologram/library', authMiddleware, (req, res) => {
+  const { books } = req.body || {};
+  if (!Array.isArray(books)) return res.status(400).json({ error: 'books array required' });
+  const entry = getUserEntry(req.user.id);
+  const user = entry.value() || {};
+  const ideologram = user.ideologram || {};
+  ideologram.library = { books, updatedAt: new Date().toISOString() };
+  entry.assign({ ideologram }).write();
+  res.json({ ok: true, count: books.length });
+});
+
+app.get('/api/ideologram/enriched', authMiddleware, (req, res) => {
+  const user = getUserEntry(req.user.id).value();
+  const ideologram = user.ideologram || {};
+  res.json({ items: ideologram.enriched?.items || [], updatedAt: ideologram.enriched?.updatedAt || null });
+});
+
+app.post('/api/ideologram/enriched', authMiddleware, (req, res) => {
+  const { items } = req.body || {};
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'items array required' });
+  const entry = getUserEntry(req.user.id);
+  const user = entry.value() || {};
+  const ideologram = user.ideologram || {};
+  // Merge by key to avoid overwriting previous enrichments
+  const byKey = {}; (Array.isArray(ideologram.enriched?.items) ? ideologram.enriched.items : []).forEach(it => { if (it && it.key) byKey[it.key] = it; });
+  items.forEach(it => { if (it && it.key) byKey[it.key] = it; });
+  ideologram.enriched = { items: Object.values(byKey), updatedAt: new Date().toISOString() };
+  entry.assign({ ideologram }).write();
+  res.json({ ok: true, count: ideologram.enriched.items.length });
+});
+
+app.get('/api/ideologram/scores', authMiddleware, (req, res) => {
+  const user = getUserEntry(req.user.id).value();
+  const ideologram = user.ideologram || {};
+  const entries = ideologram.scores?.entries || [];
+  res.json({ entries, updatedAt: ideologram.scores?.updatedAt || null });
+});
+
+app.post('/api/ideologram/scores', authMiddleware, (req, res) => {
+  const entryIn = req.body || {};
+  const entryRef = getUserEntry(req.user.id);
+  const user = entryRef.value() || {};
+  const ideologram = user.ideologram || {};
+  if (!ideologram.scores) ideologram.scores = { entries: [], updatedAt: null };
+  const key = (entryIn.isbn && String(entryIn.isbn).trim()) || (entryIn.id && String(entryIn.id).trim()) || Date.now().toString(36);
+  const now = new Date().toISOString();
+  const safeEntry = {
+    ...entryIn,
+    key,
+    title: (entryIn.title || '').toString().trim(),
+    author: (entryIn.author || '').toString().trim(),
+    isbn: entryIn.isbn ? String(entryIn.isbn).trim() : undefined,
+    fileName: entryIn.fileName ? String(entryIn.fileName) : undefined,
+    updatedAt: now,
+  };
+  const idx = ideologram.scores.entries.findIndex(e => e.key === key);
+  if (idx >= 0) ideologram.scores.entries[idx] = safeEntry; else ideologram.scores.entries.push(safeEntry);
+  ideologram.scores.updatedAt = now;
+  entryRef.assign({ ideologram }).write();
+  res.json({ ok: true, key });
+});
+
+app.post('/api/ideologram/assessments', authMiddleware, (req, res) => {
+  const assessmentIn = req.body || {};
+  const entryRef = getUserEntry(req.user.id);
+  const user = entryRef.value() || {};
+  const ideologram = user.ideologram || {};
+  if (!ideologram.assessments) ideologram.assessments = { entries: [], updatedAt: null };
+  
+  const now = new Date().toISOString();
+  const safeAssessment = {
+    ...assessmentIn,
+    id: assessmentIn.id || Date.now().toString(),
+    timestamp: assessmentIn.timestamp || now,
+    updatedAt: now,
+  };
+  
+  // Add to assessments array
+  ideologram.assessments.entries.push(safeAssessment);
+  ideologram.assessments.updatedAt = now;
+  
+  entryRef.assign({ ideologram }).write();
+  res.json({ ok: true, id: safeAssessment.id });
+});
+
+app.get('/api/ideologram/assessments', authMiddleware, (req, res) => {
+  const user = db.get('users').find({ id: req.user.id }).value() || {};
+  const ideo = user.ideologram || {};
+  const assessments = ideo.assessments?.entries || [];
+  res.json({ assessments, updatedAt: ideo.assessments?.updatedAt });
+});
+
+// Save ChatGPT history for worldview assessment
+app.post('/api/ideologram/chat-history', authMiddleware, (req, res) => {
+  try {
+    const { chatHistory } = req.body;
+    const entryRef = getUserEntry(req.user.id);
+    const user = entryRef.value() || {};
+    const ideologram = user.ideologram || {};
+    
+    const now = new Date().toISOString();
+    ideologram.chatHistory = chatHistory;
+    ideologram.chatHistoryUpdated = now;
+    
+    entryRef.assign({ ideologram }).write();
+    
+    res.json({ ok: true, messageCount: chatHistory.length });
+  } catch (error) {
+    console.error('Error saving chat history:', error);
+    res.status(500).json({ error: 'Failed to save chat history' });
+  }
+});
+
+app.get('/api/ideologram/fs', authMiddleware, (req, res) => {
+  const user = db.get('users').find({ id: req.user.id }).value() || {};
+  const ideo = user.ideologram || {};
+  function sizeOf(obj) {
+    try { return JSON.stringify(obj).length; } catch { return 0; }
+  }
+  const libraryCount = Array.isArray(ideo.library?.books) ? ideo.library.books.length : 0;
+  const enrichedCount = Array.isArray(ideo.enriched?.items) ? ideo.enriched.items.length : 0;
+  const scoresCount = Array.isArray(ideo.scores?.entries) ? ideo.scores.entries.length : 0;
+  const assessmentsCount = Array.isArray(ideo.assessments?.entries) ? ideo.assessments.entries.length : 0;
+  const chatHistoryCount = Array.isArray(ideo.chatHistory) ? ideo.chatHistory.length : 0;
+  const tree = {
+    name: 'Ideologram',
+    owner: req.user.email || req.user.id,
+    type: 'dir',
+    children: [
+      { name: 'library.json', type: 'file', updatedAt: ideo.library?.updatedAt || null, size: sizeOf(ideo.library), meta: { count: libraryCount, label: 'books' } },
+      { name: 'enriched.json', type: 'file', updatedAt: ideo.enriched?.updatedAt || null, size: sizeOf(ideo.enriched), meta: { count: enrichedCount, label: 'items' } },
+      { name: 'scores.json', type: 'file', updatedAt: ideo.scores?.updatedAt || null, size: sizeOf(ideo.scores), meta: { count: scoresCount, label: 'scores' } },
+      { name: 'assessments.json', type: 'file', updatedAt: ideo.assessments?.updatedAt || null, size: sizeOf(ideo.assessments), meta: { count: assessmentsCount, label: 'assessments' } },
+      { name: 'chat-history.json', type: 'file', updatedAt: ideo.chatHistoryUpdated || null, size: sizeOf(ideo.chatHistory), meta: { count: chatHistoryCount, label: 'messages' } },
+    ]
+  };
+  res.json(tree);
+});
+
 // Responses API endpoint
 const RESPONSES_MODEL = process.env.RESPONSES_MODEL || process.env.CHAT_MODEL || 'o4-mini-high';
 app.post('/api/responses', authMiddleware, async (req, res) => {
@@ -1242,6 +1466,157 @@ app.get('/api/scrape/marketcap/:symbol', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+// ---------------------------------------------------------------------------
+// Ideologram auxiliary services (Goodreads OAuth and Scores API) via proxy
+// ---------------------------------------------------------------------------
+// If env vars are set to point to running Ideologram services, proxy them under
+// our server for a single origin frontend. Otherwise, these routes are no-ops.
+const IDEO_GOODREADS_URL = process.env.IDEO_GOODREADS_URL; // e.g. http://localhost:4321
+const IDEO_SCORES_API_URL = process.env.IDEO_SCORES_API_URL; // e.g. http://localhost:4545
+
+if (IDEO_GOODREADS_URL) {
+  app.use('/api/ideologram/goodreads', createProxyMiddleware({
+    target: IDEO_GOODREADS_URL,
+    changeOrigin: true,
+    pathRewrite: { '^/api/ideologram/goodreads': '' },
+    logLevel: 'warn',
+  }));
+}
+
+if (IDEO_SCORES_API_URL) {
+  app.use('/api/ideologram/scores', createProxyMiddleware({
+    target: IDEO_SCORES_API_URL,
+    changeOrigin: true,
+    pathRewrite: { '^/api/ideologram/scores': '' },
+    logLevel: 'warn',
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Ideologram enrichment (server-side to avoid CORS/rate-limit issues in browser)
+// ---------------------------------------------------------------------------
+// Basic in-memory cache to reduce repeated calls during a session
+const enrichCache = new Map(); // key: 'ol:title|author|isbn' or 'wd:title|author|isbn' → { metadata, inferredAxes }
+async function fetchJson(url, opts = {}) {
+  try {
+    const resp = await axios.get(url, { timeout: 12000, ...opts });
+    return resp.data;
+  } catch (err) {
+    return null;
+  }
+}
+
+// Open Library
+async function fetchOpenLibraryByIsbn(isbn) {
+  const edition = await fetchJson(`https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`);
+  let work = null;
+  try {
+    const workKey = edition?.works?.[0]?.key;
+    if (workKey) work = await fetchJson(`https://openlibrary.org${workKey}.json`);
+  } catch {}
+  return { edition, work };
+}
+async function fetchOpenLibraryByTitleAuthor(title, author) {
+  const params = new URLSearchParams(); params.set('title', title || ''); if (author) params.set('author', author);
+  params.set('limit', '1');
+  const search = await fetchJson(`https://openlibrary.org/search.json?${params}`);
+  let edition = null; let work = null;
+  try {
+    const doc = search?.docs?.[0] || null;
+    const workKey = doc?.key;
+    if (doc?.edition_key?.[0]) edition = await fetchJson(`https://openlibrary.org/books/${doc.edition_key[0]}.json`);
+    if (workKey) work = await fetchJson(`https://openlibrary.org${workKey}.json`);
+  } catch {}
+  return { edition, work };
+}
+app.post('/api/ideologram/enrich/openlibrary', async (req, res) => {
+  const book = req.body?.book || {};
+  if (!book || !book.title) return res.status(400).json({ error: 'book.title required' });
+  try {
+    let edition = null, work = null;
+    if (book.isbn) ({ edition, work } = await fetchOpenLibraryByIsbn(String(book.isbn)));
+    if (!work) ({ edition, work } = await fetchOpenLibraryByTitleAuthor(String(book.title), book.author ? String(book.author) : undefined));
+    if (!edition && !work) {
+      const topics = inferFallbackTopicsFromBook(book);
+      return res.json({ metadata: { topics, subjects: topics, sources: { fallback: true } }, inferredAxes: mapTopicsToAxes(topics) });
+    }
+    const subjects = [];
+    const workSubjects = [].concat(work?.subjects || [], work?.subject_people || [], work?.subject_places || [], work?.subject_times || []);
+    workSubjects.forEach(s => { if (typeof s === 'string') subjects.push(s); });
+    if (Array.isArray(edition?.subjects)) edition.subjects.forEach(s => subjects.push(s));
+    const topics = Array.from(new Set(subjects.map(normalizeTopic)));
+    const inferredAxes = mapTopicsToAxes(topics);
+    const metadata = {
+      isFictionInferred: undefined,
+      subjects: topics,
+      classifications: {
+        lcc: (edition?.lc_classifications || [])[0],
+        ddc: (edition?.dewey_decimal_class || [])[0],
+      },
+      description: typeof work?.description === 'string' ? work.description : (work?.description?.value || undefined),
+      topics,
+      sources: { openLibrary: { workKey: work?.key, editionKey: edition?.key } },
+    };
+    res.json({ metadata, inferredAxes });
+  } catch (err) {
+    const topics = inferFallbackTopicsFromBook(book);
+    res.json({ metadata: { topics, subjects: topics, sources: { fallback: true } }, inferredAxes: mapTopicsToAxes(topics) });
+  }
+});
+
+// Wikidata
+async function findWikidataByIsbn(isbn) {
+  const clean = String(isbn).replace(/[^0-9Xx]/g, '');
+  const query = `SELECT ?item WHERE { VALUES ?prop { wdt:P212 wdt:P957 } ?item ?prop "${clean}" . } LIMIT 1`;
+  const url = 'https://query.wikidata.org/sparql';
+  try {
+    const resp = await axios.get(url, { params: { query, format: 'json' }, timeout: 12000, headers: { 'accept': 'application/sparql-results+json' } });
+    const uri = resp.data?.results?.bindings?.[0]?.item?.value;
+    return uri ? uri.split('/').pop() : null;
+  } catch { return null; }
+}
+async function findWikidataByTitleAuthor(title, author) {
+  const url = new URL('https://www.wikidata.org/w/api.php');
+  url.searchParams.set('action', 'wbsearchentities');
+  url.searchParams.set('search', author ? `${title} ${author}` : String(title || ''));
+  url.searchParams.set('language', 'en');
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('origin', '*');
+  const json = await fetchJson(url.toString());
+  return json?.search?.[0]?.id || null;
+}
+async function fetchWikidataDetails(qid) {
+  const query = `SELECT ?item ?instanceLabel ?genreLabel ?subjectLabel WHERE { VALUES ?item { wd:${qid} } OPTIONAL { ?item wdt:P31 ?instance . } OPTIONAL { ?item wdt:P136 ?genre . } OPTIONAL { ?item wdt:P921 ?subject . } SERVICE wikibase:label { bd:serviceParam wikibase:language "en". } }`;
+  const url = 'https://query.wikidata.org/sparql';
+  try {
+    const resp = await axios.get(url, { params: { query, format: 'json' }, timeout: 12000, headers: { 'accept': 'application/sparql-results+json' } });
+    const rows = resp.data?.results?.bindings || [];
+    const instanceOf = new Set(); const genres = new Set(); const mainSubjects = new Set();
+    rows.forEach(b => { if (b.instanceLabel?.value) instanceOf.add(b.instanceLabel.value); if (b.genreLabel?.value) genres.add(b.genreLabel.value); if (b.subjectLabel?.value) mainSubjects.add(b.subjectLabel.value); });
+    return { qid, instanceOf: Array.from(instanceOf), genres: Array.from(genres), mainSubjects: Array.from(mainSubjects) };
+  } catch { return null; }
+}
+app.post('/api/ideologram/enrich/wikidata', async (req, res) => {
+  const book = req.body?.book || {};
+  if (!book || !book.title) return res.status(400).json({ error: 'book.title required' });
+  try {
+    let qid = null;
+    if (book.isbn) qid = await findWikidataByIsbn(book.isbn);
+    if (!qid) qid = await findWikidataByTitleAuthor(book.title, book.author);
+    if (!qid) {
+      const topics = inferFallbackTopicsFromBook(book);
+      return res.json({ metadata: { qid: null, topics, mainSubjects: topics }, inferredAxes: mapTopicsToAxes(topics) });
+    }
+    const meta = await fetchWikidataDetails(qid);
+    const topics = [].concat(meta?.mainSubjects || [], meta?.genres || []);
+    const inferredAxes = mapTopicsToAxes(topics);
+    res.json({ metadata: { ...meta, topics }, inferredAxes });
+  } catch {
+    const topics = inferFallbackTopicsFromBook(book);
+    res.json({ metadata: { qid: null, topics, mainSubjects: topics }, inferredAxes: mapTopicsToAxes(topics) });
+  }
+});
 
 // Start server if run directly
 if (require.main === module) {

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ideologram.dev/schemas/book_mapping.schema.json",
+  "title": "BookIdeologyMapping",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "Stable slug (e.g., openlibrary OLID or custom)" },
+    "title": { "type": "string" },
+    "author": { "type": "string" },
+    "isbn": { "type": "string" },
+    "source": { "type": "string", "description": "Reference or citation for mapping" },
+    "axes": {
+      "type": "object",
+      "properties": {
+        "econ_lr": { "type": "number", "minimum": -1, "maximum": 1 },
+        "cult_libcon": { "type": "number", "minimum": -1, "maximum": 1 },
+        "auth_lib": { "type": "number", "minimum": -1, "maximum": 1 },
+        "global_local": { "type": "number", "minimum": -1, "maximum": 1 },
+        "tech_prog": { "type": "number", "minimum": -1, "maximum": 1 },
+        "epistemic_rat": { "type": "number", "minimum": -1, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "weight": { "type": "number", "minimum": 0, "maximum": 1, "description": "Confidence in this assignment" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "notes": { "type": "string" }
+  },
+  "required": ["title", "author", "axes"],
+  "additionalProperties": false
+}
