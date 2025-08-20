@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@react-three/postprocessing": "^2.19.1",
+    "@supabase/supabase-js": "^2.55.0",
     "@types/d3": "^7.4.3",
     "@types/three": "^0.172.0",
     "axios": "^1.4.0",
@@ -25,7 +26,6 @@
     "cheerio": "^1.0.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
-    "http-proxy-middleware": "^3.0.0",
     "crypto-js": "^4.1.1",
     "d3": "^7.9.0",
     "d3-dsv": "^3.0.1",
@@ -33,6 +33,7 @@
     "express": "^4.18.2",
     "express-session": "^1.17.3",
     "framer-motion": "^10.16.0",
+    "http-proxy-middleware": "^3.0.0",
     "jsonwebtoken": "^9.0.0",
     "jszip": "^3.10.1",
     "lowdb": "^1.0.0",
