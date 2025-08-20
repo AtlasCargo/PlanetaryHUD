@@ -25,8 +25,8 @@ import { getCountries, getIndicators, getIndicatorData } from '../services/world
 import { sendMessage, setApiKey } from '../services/openaiClient';
 import { AuthContext } from '../contexts/AuthContext';
 import FinancialDashboard from './FinancialDashboard'; // Import FinancialDashboard
-// import { IdeologramWidget } from '@ideologram/widget';
-// import { SAMPLE_ANCHORS, parseGoodreadsCsv, analyzeTextLexical, computeIdeologram, enrichBook, enrichBookWikidata } from '@ideologram/core';
+import { IdeologramWidget } from '../ideologram';
+import { SAMPLE_ANCHORS, parseGoodreadsCsv, analyzeTextLexical, computeIdeologram, enrichBook, enrichBookWikidata } from '../ideologram';
 
 export default function ReactGlobeExample() {
   // -------------------------------

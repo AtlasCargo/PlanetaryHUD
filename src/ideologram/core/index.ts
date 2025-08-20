@@ -1,0 +1,11 @@
+export * from './types.js';
+export { computeIdeologram } from './compute.js';
+export { SAMPLE_ANCHORS } from './data/anchors.sample.js';
+export type { ComputeInput } from './compute.js';
+export { SAMPLE_QUIZ_LOADINGS } from './data/quiz.sample.js';
+export { parseGoodreadsCsv } from './importers/goodreads.js';
+export { enrichBook, mapTopicsToAxes, TOPIC_TO_AXES } from './enrich.js';
+export type { BookMetadata } from './enrich.js';
+export { enrichBookWikidata } from './wikidata.js';
+export { analyzeTextLexical, DEFAULT_LEXICON } from './text.js';
+export type { Lexicon, LexicalMetrics, AnalyzeTextResult, AnalyzeTextOptions } from './text.js';
