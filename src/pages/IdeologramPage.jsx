@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { IdeologramWidget } from '@ideologram/widget';
-import { SAMPLE_ANCHORS } from '@ideologram/core';
+// import { IdeologramWidget } from '@ideologram/widget';
+// import { SAMPLE_ANCHORS } from '@ideologram/core';
 
 export default function IdeologramPage() {
   const [quiz, setQuiz] = useState([
