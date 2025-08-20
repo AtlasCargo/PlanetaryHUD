@@ -20,6 +20,9 @@ export function parseGoodreadsCsv(csvText) {
     
     // Only include books that are marked as read
     if (book['Exclusive Shelf'] === 'read' && book['My Rating'] && book['My Rating'] !== '0') {
+      const readingStatus = book['Exclusive Shelf']?.toLowerCase();
+      const isRead = (readingStatus === 'read') || !!book['Date Read'];
+      
       books.push({
         id: book['Book Id'],
         title: book['Title'],
@@ -27,7 +30,11 @@ export function parseGoodreadsCsv(csvText) {
         rating: parseInt(book['My Rating']) || 0,
         dateRead: book['Date Read'],
         shelves: book['Bookshelves'] ? book['Bookshelves'].split(';').map(s => s.trim()) : [],
-        isFiction: book['Bookshelves']?.toLowerCase().includes('fiction') || false
+        isFiction: book['Bookshelves']?.toLowerCase().includes('fiction') || false,
+        // Add the missing properties that the read books filter needs
+        readingStatus: readingStatus,
+        isRead: isRead,
+        source: 'goodreads'
       });
     }
   }

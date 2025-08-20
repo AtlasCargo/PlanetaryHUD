@@ -2325,12 +2325,16 @@ export default function ReactGlobeExample() {
                           reader.onload = () => {
                             try {
                               const text = String(reader.result || '');
+                              console.log('CSV text length:', text.length);
                               const parsed = parseGoodreadsCsv(text);
+                              console.log('Parsed books:', parsed);
+                              console.log('Books with isRead=true:', parsed.filter(b => b.isRead));
                               setIdeoBooks(parsed);
                               // Persist library (server if logged-in, else local)
                               persistLibrary(parsed);
                               setIdeoSelectedFile(null);
                             } catch (err) { 
+                              console.error('CSV parsing error:', err);
                               setIdeoError('Failed to parse CSV'); 
                             } finally { 
                               setIdeoLoading(false); 
@@ -2619,6 +2623,15 @@ export default function ReactGlobeExample() {
                   <span>Total loaded: {ideoBooks.length}</span>
                   <span>Read: {ideoBooks.filter(b => (b.isRead ?? (b.readingStatus === 'read' || !!b.dateRead))).length}</span>
                   <span>Rated (read): {ideoBooks.filter(b => (b.isRead ?? (b.readingStatus === 'read' || !!b.dateRead)) && b.rating != null).length}</span>
+                </div>
+                {/* Debug info */}
+                <div className="mt-2 text-xs text-gray-500">
+                  Debug: ideoBooks state has {ideoBooks.length} items
+                  {ideoBooks.length > 0 && (
+                    <div>
+                      First book: {JSON.stringify(ideoBooks[0], null, 2)}
+                    </div>
+                  )}
                 </div>
                 <div className="mt-2 max-h-64 overflow-auto border border-gray-700 rounded p-2">
                   {ideoBooks.filter(b => (b.isRead ?? (b.readingStatus === 'read' || !!b.dateRead))).length === 0 ? (
