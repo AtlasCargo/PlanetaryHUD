@@ -2319,6 +2319,7 @@ export default function ReactGlobeExample() {
                       <button
                         onClick={() => {
                           if (!ideoSelectedFile) return;
+                          console.log('Starting CSV processing for file:', ideoSelectedFile.name);
                           setIdeoLoading(true);
                           setIdeoError('');
                           const reader = new FileReader();
@@ -2326,16 +2327,46 @@ export default function ReactGlobeExample() {
                             try {
                               const text = String(reader.result || '');
                               console.log('CSV text length:', text.length);
+                              console.log('CSV text preview:', text.substring(0, 200));
+                              
+                              // Check CSV structure
+                              const lines = text.split('\n');
+                              if (lines.length > 0) {
+                                const headers = lines[0].split(',').map(h => h.trim());
+                                console.log('Detected CSV headers:', headers);
+                                console.log('Looking for headers:', ['Title', 'Author', 'Exclusive Shelf', 'My Rating', 'Date Read', 'Bookshelves']);
+                                
+                                const hasRequiredHeaders = ['Title', 'Author', 'Exclusive Shelf', 'My Rating'].every(h => headers.includes(h));
+                                console.log('Has required headers:', hasRequiredHeaders);
+                                
+                                if (!hasRequiredHeaders) {
+                                  console.error('CSV missing required headers!');
+                                  setIdeoError('CSV format incorrect. Expected headers: Title, Author, Exclusive Shelf, My Rating');
+                                  setIdeoLoading(false);
+                                  return;
+                                }
+                              }
+                              
                               const parsed = parseGoodreadsCsv(text);
                               console.log('Parsed books:', parsed);
                               console.log('Books with isRead=true:', parsed.filter(b => b.isRead));
-                              setIdeoBooks(parsed);
-                              // Persist library (server if logged-in, else local)
-                              persistLibrary(parsed);
+                              console.log('Total books parsed:', parsed.length);
+                              
+                              if (parsed.length === 0) {
+                                console.warn('No books were parsed from CSV!');
+                                setIdeoError('No books found in CSV. Check if CSV format is correct.');
+                              } else {
+                                console.log('Setting ideoBooks state with:', parsed);
+                                setIdeoBooks(parsed);
+                                // Persist library (server if logged-in, else local)
+                                console.log('Persisting library...');
+                                persistLibrary(parsed);
+                              }
+                              
                               setIdeoSelectedFile(null);
                             } catch (err) { 
                               console.error('CSV parsing error:', err);
-                              setIdeoError('Failed to parse CSV'); 
+                              setIdeoError('Failed to parse CSV: ' + err.message); 
                             } finally { 
                               setIdeoLoading(false); 
                             }
