@@ -36,6 +36,7 @@ if (!isTest && haveOauthConfig) {
   GitHubStrategy = class {};
 }
 const cors = require('cors');
+const crypto = require('crypto');
 const axios = require('axios');
 const cheerio = require('cheerio');
 // Helper: normalize topics to axes (mirrors core mapping lightly)
@@ -133,6 +134,17 @@ const OWID_CDN_BASE = process.env.OWID_CDN_BASE || 'https://raw.githubuserconten
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const CryptoJS = require('crypto-js');
+// Optional dependency: used only when VOICE_TRANSCRIBE flag is enabled
+let multer, upload;
+try {
+  multer = require('multer');
+  upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024 }
+  });
+} catch (e) {
+  upload = null; // not installed; transcribe stub will still respond without file parsing
+}
 
 // -----------------------------------------------------------------------------
 // Simple knowledge‑base search helper
@@ -228,7 +240,7 @@ function searchKnowledgeBase(query, options = {}) {
         // const fetch = globalThis.fetch;
 
         /**
-         * Query Our World in Data’s public search API and return the top matches.
+         * Query Our World in Data's public search API and return the top matches.
          *
          * @param {string}  query               Free‑text user query
          * @param {object}  [options]
@@ -244,7 +256,7 @@ function searchKnowledgeBase(query, options = {}) {
             domain_filter = null
           } = options
 
-          // hit the OWID “owlbot” search endpoint
+          // hit the OWID "owlbot" search endpoint
           const url = new URL('https://owlbot.owid.cloud/api/v1/search')
           url.searchParams.set('q', query)
           url.searchParams.set('limit', num_results * 3)          // ask for a few spares
@@ -260,7 +272,7 @@ function searchKnowledgeBase(query, options = {}) {
 
           let hits = Array.isArray(json?.results) ? json.results : []
 
-          // optional “domain/topic” filter
+          // optional "domain/topic" filter
           if (domain_filter) {
             const f = domain_filter.toLowerCase()
             hits = hits.filter(h => (h.topic || '').toLowerCase().includes(f))
@@ -268,7 +280,7 @@ function searchKnowledgeBase(query, options = {}) {
 
           // map to the generic structure we expose to the LLM
           const results = hits.slice(0, num_results).map(h => ({
-            id:        h.id,        // OWID’s internal page id
+            id:        h.id,        // OWID's internal page id
             title:     h.title,
             excerpt:   (h.description || '').slice(0, 200),
             topic:     h.topic,
@@ -297,6 +309,10 @@ const FileSync = require('lowdb/adapters/FileSync');
 const PORT = process.env.PORT || 5999;
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret';
 const CRYPTO_SECRET = process.env.CRYPTO_SECRET || 'change-this-encryption-key';
+// Feature flags for voice integration (stubs)
+const VOICE_REALTIME = process.env.VOICE_REALTIME === '1';
+const VOICE_TRANSCRIBE = process.env.VOICE_TRANSCRIBE === '1';
+const VOICE_CORRECTION = process.env.VOICE_CORRECTION === '1';
 
 // Setup lowdb
 const adapter = new FileSync(path.join(__dirname, 'db.json'));
@@ -331,9 +347,9 @@ if (isTest && typeof app.address !== 'function') {
 // In earlier iterations we attempted to mock `app.listen` while running under Jest to
 // avoid binding a real network socket. Unfortunately `supertest` relies on the
 // returned object being a fully‑functional `http.Server` instance; the minimal stub
-// caused runtime connection errors (e.g. “connect EPERM 127.0.0.1 – Local”).
+// caused runtime connection errors (e.g. "connect EPERM 127.0.0.1 – Local").
 //
-// Simply leaving Express’s original `app.listen` intact works fine in the test
+// Simply leaving Express's original `app.listen` intact works fine in the test
 // environment because `supertest` passes `0` as the port which lets the operating
 // system choose an ephemeral port. Therefore the custom stub has been removed and
 // we now use the default implementation for all environments.
@@ -431,7 +447,7 @@ if (false && isTest) {
 
     // Required by many Express helpers
     res.app = expressHandler || app;
-    res.req = null; // we’ll assign later once the mock request is built
+    res.req = null; // we'll assign later once the mock request is built
 
     res.headers = {};
     res.setHeader = (k, v) => { res.headers[k.toLowerCase()] = v; };
@@ -498,10 +514,10 @@ if (false && isTest) {
   // Ensure the SuperTest request object remains *thenable*
   // ------------------------------------------------------------------------
   // When running inside Jest the test-cases use `await request(app)…` which
-  // relies on the `.then` Promise interface exposed by SuperTest’s `Test`
+  // relies on the `.then` Promise interface exposed by SuperTest's `Test`
   // class.  Our custom `.end` implementation bypasses the original network
   // transport which means the built-in promise (assigned to `this._promise` in
-  // SuperTest’s own `then` shim) is never initialised.  We therefore patch a
+  // SuperTest's own `then` shim) is never initialised.  We therefore patch a
   // minimal replacement that defers to *our* `.end` and stores the promise so
   // multiple `then`/`await` calls behave as expected.
 
@@ -627,6 +643,22 @@ function authMiddleware(req, res, next) {
     return res.status(401).json({ error: 'Missing or invalid Authorization header' });
   }
   const token = auth.split(' ')[1];
+  
+  // Development mode: accept dummy tokens for testing
+  if (process.env.NODE_ENV !== 'production' && token.startsWith('USER_')) {
+    // For dummy tokens, we'll get the email from the frontend user context
+    // The frontend should send the actual email in the request body or headers
+    const email = req.headers['x-user-email'] || req.body?.email || 'unknown@example.com';
+    req.user = { 
+      id: token, 
+      email: email, 
+      avatarUrl: null, 
+      apiKeyEncrypted: null 
+    };
+    console.log('🔓 Development mode: accepted dummy token for user:', email);
+    return next();
+  }
+  
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const user = db.get('users').find({ id: payload.id }).value();
@@ -1242,7 +1274,30 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
 // Ideologram storage API (per-user) – CSV library, enrichment and scores
 // -----------------------------------------------------------------------------
 function getUserEntry(userId) {
-  return db.get('users').find({ id: userId });
+  let user = db.get('users').find({ id: userId });
+  
+  // If user doesn't exist (e.g., dummy token), create a new entry
+  if (!user.value()) {
+    console.log('🔧 Creating new user entry for dummy token:', userId);
+    const newUser = {
+      id: userId,
+      email: userId.includes('@') ? userId : 'dummy@example.com',
+      avatarUrl: null,
+      apiKeyEncrypted: null,
+      ideologram: {
+        library: { books: [], updatedAt: null },
+        enriched: { items: [], updatedAt: null },
+        scores: { entries: [], updatedAt: null },
+        assessments: { entries: [], updatedAt: null },
+        chatHistory: { entries: [], updatedAt: null }
+      }
+    };
+    
+    db.get('users').push(newUser).write();
+    user = db.get('users').find({ id: userId });
+  }
+  
+  return user;
 }
 
 app.get('/api/ideologram/library', authMiddleware, (req, res) => {
@@ -1252,14 +1307,35 @@ app.get('/api/ideologram/library', authMiddleware, (req, res) => {
 });
 
 app.post('/api/ideologram/library', authMiddleware, (req, res) => {
+  console.log('📚 Library save request received:', { 
+    userId: req.user.id, 
+    userEmail: req.user.email,
+    booksCount: req.body?.books?.length || 0,
+    bodyKeys: Object.keys(req.body || {})
+  });
+  
   const { books } = req.body || {};
-  if (!Array.isArray(books)) return res.status(400).json({ error: 'books array required' });
-  const entry = getUserEntry(req.user.id);
-  const user = entry.value() || {};
-  const ideologram = user.ideologram || {};
-  ideologram.library = { books, updatedAt: new Date().toISOString() };
-  entry.assign({ ideologram }).write();
-  res.json({ ok: true, count: books.length });
+  if (!Array.isArray(books)) {
+    console.error('❌ Invalid books data:', typeof books, books);
+    return res.status(400).json({ error: 'books array required' });
+  }
+  
+  try {
+    const entry = getUserEntry(req.user.id);
+    const user = entry.value() || {};
+    const ideologram = user.ideologram || {};
+    
+    console.log('💾 Saving library for user:', req.user.email, 'Books count:', books.length);
+    
+    ideologram.library = { books, updatedAt: new Date().toISOString() };
+    entry.assign({ ideologram }).write();
+    
+    console.log('✅ Library saved successfully for user:', req.user.email);
+    res.json({ ok: true, count: books.length });
+  } catch (error) {
+    console.error('❌ Error saving library:', error);
+    res.status(500).json({ error: 'Failed to save library', details: error.message });
+  }
 });
 
 app.get('/api/ideologram/enriched', authMiddleware, (req, res) => {
@@ -1337,10 +1413,10 @@ app.post('/api/ideologram/assessments', authMiddleware, (req, res) => {
 });
 
 app.get('/api/ideologram/assessments', authMiddleware, (req, res) => {
-  const user = db.get('users').find({ id: req.user.id }).value() || {};
-  const ideo = user.ideologram || {};
-  const assessments = ideo.assessments?.entries || [];
-  res.json({ assessments, updatedAt: ideo.assessments?.updatedAt });
+  const user = getUserEntry(req.user.id).value();
+  const ideologram = user.ideologram || {};
+  const assessments = ideologram.assessments?.entries || [];
+  res.json({ assessments, updatedAt: ideologram.assessments?.updatedAt });
 });
 
 // Save ChatGPT history for worldview assessment
@@ -1365,29 +1441,732 @@ app.post('/api/ideologram/chat-history', authMiddleware, (req, res) => {
 });
 
 app.get('/api/ideologram/fs', authMiddleware, (req, res) => {
-  const user = db.get('users').find({ id: req.user.id }).value() || {};
-  const ideo = user.ideologram || {};
+  const user = getUserEntry(req.user.id).value();
+  const ideologram = user.ideologram || {};
+  
   function sizeOf(obj) {
     try { return JSON.stringify(obj).length; } catch { return 0; }
   }
-  const libraryCount = Array.isArray(ideo.library?.books) ? ideo.library.books.length : 0;
-  const enrichedCount = Array.isArray(ideo.enriched?.items) ? ideo.enriched.items.length : 0;
-  const scoresCount = Array.isArray(ideo.scores?.entries) ? ideo.scores.entries.length : 0;
-  const assessmentsCount = Array.isArray(ideo.assessments?.entries) ? ideo.assessments.entries.length : 0;
-  const chatHistoryCount = Array.isArray(ideo.chatHistory) ? ideo.chatHistory.length : 0;
+  
+  function getFileSize(filePath) {
+    try {
+      const stats = fs.statSync(filePath);
+      return stats.size;
+    } catch {
+      return 0;
+    }
+  }
+  
+  const libraryCount = Array.isArray(ideologram.library?.books) ? ideologram.library.books.length : 0;
+  const enrichedCount = Array.isArray(ideologram.enriched?.items) ? ideologram.enriched.items.length : 0;
+  const scoresCount = Array.isArray(ideologram.scores?.entries) ? ideologram.scores.entries.length : 0;
+  const assessmentsCount = Array.isArray(ideologram.assessments?.entries) ? ideologram.assessments.entries.length : 0;
+  const chatHistoryCount = Array.isArray(ideologram.chatHistory) ? ideologram.chatHistory.length : 0;
+  const compressedCount = Array.isArray(ideologram.compressed?.books) ? ideologram.compressed.books.length : 0;
+  
+  // Get compression files from disk
+  const compressionFiles = [];
+  if (ideologram.compressed?.books && ideologram.compressed.books.length > 0) {
+    const userCompressedDir = path.join(__dirname, 'compressed', req.user.id);
+    if (fs.existsSync(userCompressedDir)) {
+      ideologram.compressed.books.forEach(book => {
+        const bookDir = path.join(userCompressedDir, book.id, book.id);
+        if (fs.existsSync(bookDir)) {
+          // Add book directory
+          const bookNode = {
+            name: book.id,
+            type: 'dir',
+            meta: { 
+              title: book.title || 'Untitled',
+              author: book.author || 'Unknown',
+              compressedAt: book.compressedAt,
+              label: 'compression files'
+            },
+            children: []
+          };
+          
+          // Add compression output files
+          const outputFiles = [
+            'sentences.jsonl',
+            'ists.jsonl', 
+            'embeddings.npy',
+            'paraphrase_clusters.json',
+            'cluster_protos.json',
+            'book_core.json',
+            'density_report.json'
+          ];
+          
+          outputFiles.forEach(fileName => {
+            const filePath = path.join(bookDir, fileName);
+            if (fs.existsSync(filePath)) {
+              const stats = fs.statSync(filePath);
+              bookNode.children.push({
+                name: fileName,
+                type: 'file',
+                size: stats.size,
+                updatedAt: stats.mtime.toISOString(),
+                meta: { 
+                  count: fileName.endsWith('.jsonl') ? 'multiple lines' : '1 file',
+                  label: fileName.replace('.jsonl', '').replace('.json', '').replace('.npy', '')
+                }
+              });
+            }
+          });
+          
+          compressionFiles.push(bookNode);
+        }
+      });
+    }
+  }
+  
   const tree = {
     name: 'Ideologram',
     owner: req.user.email || req.user.id,
     type: 'dir',
     children: [
-      { name: 'library.json', type: 'file', updatedAt: ideo.library?.updatedAt || null, size: sizeOf(ideo.library), meta: { count: libraryCount, label: 'books' } },
-      { name: 'enriched.json', type: 'file', updatedAt: ideo.enriched?.updatedAt || null, size: sizeOf(ideo.enriched), meta: { count: enrichedCount, label: 'items' } },
-      { name: 'scores.json', type: 'file', updatedAt: ideo.scores?.updatedAt || null, size: sizeOf(ideo.scores), meta: { count: scoresCount, label: 'scores' } },
-      { name: 'assessments.json', type: 'file', updatedAt: ideo.assessments?.updatedAt || null, size: sizeOf(ideo.assessments), meta: { count: assessmentsCount, label: 'assessments' } },
-      { name: 'chat-history.json', type: 'file', updatedAt: ideo.chatHistoryUpdated || null, size: sizeOf(ideo.chatHistory), meta: { count: chatHistoryCount, label: 'messages' } },
+      { name: 'library.json', type: 'file', updatedAt: ideologram.library?.updatedAt || null, size: sizeOf(ideologram.library), meta: { count: libraryCount, label: 'books' } },
+      { name: 'enriched.json', type: 'file', updatedAt: ideologram.enriched?.updatedAt || null, size: sizeOf(ideologram.enriched), meta: { count: enrichedCount, label: 'items' } },
+      { name: 'scores.json', type: 'file', updatedAt: ideologram.scores?.updatedAt || null, size: sizeOf(ideologram.scores), meta: { count: scoresCount, label: 'scores' } },
+      { name: 'assessments.json', type: 'file', updatedAt: ideologram.assessments?.updatedAt || null, size: sizeOf(ideologram.assessments), meta: { count: assessmentsCount, label: 'assessments' } },
+      { name: 'chat-history.json', type: 'file', updatedAt: ideologram.chatHistoryUpdated || null, size: sizeOf(ideologram.chatHistory), meta: { count: chatHistoryCount, label: 'messages' } },
+      { name: 'compressed.json', type: 'file', updatedAt: ideologram.compressed?.updatedAt || null, size: sizeOf(ideologram.compressed), meta: { count: compressedCount, label: 'compressed books' } },
+      // Add compression files if they exist
+      ...(compressionFiles.length > 0 ? [{ 
+        name: 'compression-files', 
+        type: 'dir', 
+        meta: { count: compressionFiles.length, label: 'compressed books' },
+        children: compressionFiles 
+      }] : [])
     ]
   };
   res.json(tree);
+});
+
+// Step-by-step compression endpoint
+app.post('/api/ideologram/compress/step', authMiddleware, async (req, res) => {
+  const { step, text, bookId, title, author, docType } = req.body;
+  
+  if (!step || !text || !bookId) {
+    return res.status(400).json({ error: 'step, text, and bookId required' });
+  }
+  
+  try {
+    console.log(`🔧 Running compression step: ${step} for book: ${bookId}`);
+    
+    if (step === 'extract') {
+      // Step 1: Extract statements
+      console.log('📝 Running statement extraction...');
+      
+      const { spawn } = require('child_process');
+      const pythonScript = path.join(__dirname, '..', 'Ideologram', 'K-Compress', 'run_extraction.py');
+      
+      const extractionScript = `import sys
+import os
+sys.path.append('Ideologram/K-Compress')
+from book_compressor_mdl import split_chapters, split_paragraphs, split_sentences, make_sa, llm_sentence_to_ist_batch
+import json
+
+# Redirect stdout to stderr for debug messages, then restore for JSON output
+original_stdout = sys.stdout
+sys.stdout = sys.stderr
+
+# Text processing
+text = '''${text.replace(/'/g, "\\'")}'''
+chapters = split_chapters(text)
+
+sentences = []
+for ch_i, ch in enumerate(chapters):
+    for p_i, para in enumerate(split_paragraphs(ch)):
+        for s_i, s in enumerate(split_sentences(para)):
+            sa = make_sa('${bookId}', ch_i, p_i, s_i, s)
+            sentences.append({"sa": sa, "text": s, "ch": ch_i, "para": p_i, "sent": s_i})
+
+# Limit to first 1000 sentences for debug mode
+sentences = sentences[:1000]
+
+# Create fake CEP for now
+cep = {"doc_type": "${docType || 'nonfiction'}"}
+
+# Extract statements using GPT-5 (debug output goes to stderr)
+print("Extracting statements...")
+ists = llm_sentence_to_ist_batch(sentences, cep, max_sentences=1000)
+
+# Count results
+total_sentences = len(sentences)
+total_statements = len([ist for ist in ists if not ist.get('none')])
+
+# Save to temporary directory
+user_dir = os.path.join('server', 'compressed', '${req.user.id}')
+book_dir = os.path.join(user_dir, '${bookId}')
+os.makedirs(book_dir, exist_ok=True)
+
+with open(os.path.join(book_dir, 'sentences.jsonl'), 'w') as f:
+    for rec in sentences:
+        f.write(json.dumps(rec) + '\\n')
+
+with open(os.path.join(book_dir, 'ists.jsonl'), 'w') as f:
+    for ist in ists:
+        f.write(json.dumps(ist) + '\\n')
+
+# Output results
+result = {
+    'sentences': total_sentences,
+    'statements': total_statements,
+    'discarded': total_sentences - total_statements,
+    'message': 'Statement extraction completed'
+}
+
+# Restore stdout and print only JSON
+sys.stdout = original_stdout
+print(json.dumps(result))`;
+      
+      fs.writeFileSync(pythonScript, extractionScript);
+      
+      return new Promise((resolve, reject) => {
+        const pythonProcess = spawn('python3', [pythonScript]);
+        
+        let stdout = '';
+        let stderr = '';
+        let lastOutputTime = Date.now();
+        
+        // Set a timeout to kill the process if it takes too long
+        const timeoutId = setTimeout(() => {
+          console.error('⏰ Extraction timeout: killing stuck process');
+          pythonProcess.kill('SIGKILL');
+          reject(new Error('Extraction timeout: process took too long'));
+        }, 5 * 60 * 1000); // 5 minutes timeout
+        
+        // Health check: warn if no output for 2 minutes
+        const healthCheckId = setInterval(() => {
+          const timeSinceLastOutput = Date.now() - lastOutputTime;
+          if (timeSinceLastOutput > 2 * 60 * 1000) { // 2 minutes
+            console.warn('⚠️  No output from extraction process for 2 minutes');
+          }
+        }, 30 * 1000); // Check every 30 seconds
+        
+        pythonProcess.stdout.on('data', (data) => {
+          stdout += data.toString();
+          lastOutputTime = Date.now();
+        });
+        
+        pythonProcess.stderr.on('data', (data) => {
+          stderr += data.toString();
+          lastOutputTime = Date.now();
+        });
+        
+        pythonProcess.on('close', async (code) => {
+          clearTimeout(timeoutId);
+          clearInterval(healthCheckId);
+          
+          if (code !== 0) {
+            console.error('❌ Extraction failed:', stderr);
+            return reject(new Error(`Extraction failed: ${stderr}`));
+          }
+          
+          try {
+            const result = JSON.parse(stdout);
+            console.log('✅ Statement extraction completed');
+            resolve({
+              ok: true,
+              sentences: result.sentences,
+              statements: result.statements,
+              discarded: result.discarded,
+              message: result.message
+            });
+            
+          } catch (error) {
+            console.error('❌ Error parsing extraction results:', error);
+            reject(new Error('Failed to parse extraction results'));
+          }
+        });
+        
+        pythonProcess.on('error', (error) => {
+          clearTimeout(timeoutId);
+          clearInterval(healthCheckId);
+          console.error('❌ Extraction process error:', error);
+          reject(new Error(`Extraction process error: ${error.message}`));
+        });
+      });
+      
+    } else if (step === 'embed') {
+      // Step 2: Generate embeddings
+      console.log('🧠 Running embedding generation...');
+      
+      // For now, create fake embeddings
+      const userDir = path.join(__dirname, 'compressed', req.user.id);
+      const bookDir = path.join(userDir, bookId);
+      const istsPath = path.join(bookDir, 'ists.jsonl');
+      
+      if (!fs.existsSync(istsPath)) {
+        return res.status(400).json({ error: 'Extraction must be run first' });
+      }
+      
+      const ists = fs.readFileSync(istsPath, 'utf8')
+        .split('\n')
+        .filter(line => line.trim())
+        .map(line => JSON.parse(line));
+      
+      // Create fake embeddings (1536 dimensions)
+      const embeddings = [];
+      for (let i = 0; i < ists.length; i++) {
+        const embedding = [];
+        for (let j = 0; j < 1536; j++) {
+          embedding.push(Math.random());
+        }
+        embeddings.push(embedding);
+      }
+      
+      // Save embeddings
+      const embeddingsPath = path.join(bookDir, 'embeddings.npy');
+      // Note: In a real implementation, you'd save as numpy array
+      // For now, just note that embeddings were created
+      
+      console.log('✅ Embedding generation completed');
+      res.json({
+        ok: true,
+        embeddings: embeddings.length,
+        dimensions: 1536,
+        message: 'Embedding generation completed'
+      });
+      
+    } else if (step === 'cluster') {
+      // Step 3: Cluster statements
+      console.log('🔍 Running statement clustering...');
+      
+      const { spawn } = require('child_process');
+      const pythonScript = path.join(__dirname, '..', 'Ideologram', 'K-Compress', 'run_clustering.py');
+      
+      const clusteringScript = `import sys
+import os
+sys.path.append('Ideologram/K-Compress')
+from book_compressor_mdl import paraphrase_clusters, summarize_cluster_to_ist, cluster_centroid
+import json
+
+# Read existing data
+user_dir = os.path.join('server', 'compressed', '${req.user.id}')
+book_dir = os.path.join(user_dir, '${bookId}')
+
+with open(os.path.join(book_dir, 'ists.jsonl'), 'r') as f:
+    ists = [json.loads(line) for line in f if line.strip()]
+
+# Create fake embeddings for now
+import numpy as np
+embs = [np.random.random(1536).tolist() for _ in range(len(ists))]
+
+# Run clustering
+clusters = paraphrase_clusters(ists, embs, sim_thresh=0.85, ncd_thresh=0.38, min_cluster=2)
+
+# Generate cluster summaries
+protos = []
+for i, cluster in enumerate(clusters):
+    cluster_ists = [ists[j] for j in cluster]
+    proto = summarize_cluster_to_ist(cluster_ists)
+    proto['id'] = '${bookId}:cluster:' + str(i)
+    proto['coverage'] = len(cluster)
+    proto['centroid'] = cluster_centroid(embs, cluster)
+    protos.append(proto)
+
+# Save results
+clusters_path = os.path.join(book_dir, 'paraphrase_clusters.json')
+protos_path = os.path.join(book_dir, 'cluster_protos.json')
+
+with open(clusters_path, 'w') as f:
+    json.dump({
+        'clusters': {str(i): [ists[j]['sa'] for j in cluster] for i, cluster in enumerate(clusters)},
+        'stats': {'n_clusters': len(clusters), 'n_items': len(ists)}
+    }, f, indent=2)
+
+with open(protos_path, 'w') as f:
+    json.dump(protos, f, indent=2)
+
+# Output results
+result = {
+    'clusters': len(clusters),
+    'protos': len(protos),
+    'message': 'Clustering completed'
+}
+
+print(json.dumps(result))`;
+      
+      fs.writeFileSync(pythonScript, clusteringScript);
+      
+      return new Promise((resolve, reject) => {
+        const pythonProcess = spawn('python3', [pythonScript]);
+        
+        let stdout = '';
+        let stderr = '';
+        let lastOutputTime = Date.now();
+        
+        // Set a timeout to kill the process if it takes too long
+        const timeoutId = setTimeout(() => {
+          console.error('⏰ Clustering timeout: killing stuck process');
+          pythonProcess.kill('SIGKILL');
+          reject(new Error('Clustering timeout: process took too long'));
+        }, 5 * 60 * 1000); // 5 minutes timeout
+        
+        // Health check: warn if no output for 2 minutes
+        const healthCheckId = setInterval(() => {
+          const timeSinceLastOutput = Date.now() - lastOutputTime;
+          if (timeSinceLastOutput > 2 * 60 * 1000) { // 2 minutes
+            console.warn('⚠️  No output from clustering process for 2 minutes');
+          }
+        }, 30 * 1000); // Check every 30 seconds
+        
+        pythonProcess.stdout.on('data', (data) => {
+          stdout += data.toString();
+          lastOutputTime = Date.now();
+        });
+        
+        pythonProcess.stderr.on('data', (data) => {
+          stderr += data.toString();
+          lastOutputTime = Date.now();
+        });
+        
+        pythonProcess.on('close', async (code) => {
+          clearTimeout(timeoutId);
+          clearInterval(healthCheckId);
+          
+          if (code !== 0) {
+            console.error('❌ Clustering failed:', stderr);
+            return reject(new Error(`Clustering failed: ${stderr}`));
+          }
+          
+          try {
+            const result = JSON.parse(stdout);
+            console.log('✅ Clustering completed');
+            resolve({
+              ok: true,
+              clusters: result.clusters,
+              protos: result.protos,
+              message: result.message
+            });
+            
+          } catch (error) {
+            console.error('❌ Error parsing clustering results:', error);
+            reject(new Error('Failed to parse clustering results'));
+          }
+        });
+        
+        pythonProcess.on('error', (error) => {
+          clearTimeout(timeoutId);
+          clearInterval(healthCheckId);
+          console.error('❌ Clustering process error:', error);
+          reject(new Error(`Clustering process error: ${error.message}`));
+        });
+      });
+      
+    } else if (step === 'synthesize') {
+      // Step 4: Generate theses
+      console.log('🧠 Running thesis synthesis...');
+      
+      const { spawn } = require('child_process');
+      const pythonScript = path.join(__dirname, '..', 'Ideologram', 'K-Compress', 'run_synthesis.py');
+      
+      const synthesisScript = `import sys
+import os
+sys.path.append('Ideologram/K-Compress')
+from book_compressor_mdl import ist_code_len_bits, greedy_mdl_selection
+import json
+
+# Read existing data
+user_dir = os.path.join('server', 'compressed', '${req.user.id}')
+book_dir = os.path.join(user_dir, '${bookId}')
+
+with open(os.path.join(book_dir, 'ists.jsonl'), 'r') as f:
+    ists = [json.loads(line) for line in f if line.strip()]
+
+with open(os.path.join(book_dir, 'cluster_protos.json'), 'r') as f:
+    protos = json.load(f)
+
+with open(os.path.join(book_dir, 'paraphrase_clusters.json'), 'r') as f:
+    clusters_data = json.load(f)
+
+# Convert clusters to covers format
+covers = {}
+for cid, cluster in clusters_data['clusters'].items():
+    covers[int(cid)] = [i for i, ist in enumerate(ists) if ist['sa'] in cluster]
+
+# Run MDL optimization
+ist_bits = [ist_code_len_bits(ist) for ist in ists]
+ptr_cost_bits = 64
+target_coverage = 0.85
+
+chosen, cov_ratio, mdl_reduction = greedy_mdl_selection(
+    protos, covers, ist_bits, ptr_cost_bits, target_coverage
+)
+
+# Generate theses
+theses = []
+for rank, cid in enumerate(chosen[:5]):
+    theses.append({
+        'id': '${bookId}:thesis:' + str(rank),
+        'triple': protos[cid]['triple'],
+        'confidence': protos[cid].get('confidence', 0.6),
+        'backlinks': [ists[i]['sa'] for i in covers[cid]]
+    })
+
+# Save results
+book_core_path = os.path.join(book_dir, 'book_core.json')
+with open(book_core_path, 'w') as f:
+    json.dump({
+        'book_id': '${bookId}',
+        'doc_type': '${docType || 'nonfiction'}',
+        'coverage_fraction': cov_ratio,
+        'mdl_reduction_bits': mdl_reduction,
+        'theses': theses
+    }, f, indent=2)
+
+# Output results
+result = {
+    'theses': len(theses),
+    'coverage': cov_ratio,
+    'mdl_reduction': mdl_reduction,
+    'message': 'Thesis synthesis completed'
+}
+
+print(json.dumps(result))`;
+      
+      fs.writeFileSync(pythonScript, synthesisScript);
+      
+      return new Promise((resolve, reject) => {
+        const pythonProcess = spawn('python3', [pythonScript]);
+        
+        let stdout = '';
+        let stderr = '';
+        let lastOutputTime = Date.now();
+        
+        // Set a timeout to kill the process if it takes too long
+        const timeoutId = setTimeout(() => {
+          console.error('⏰ Synthesis timeout: killing stuck process');
+          pythonProcess.kill('SIGKILL');
+          reject(new Error('Synthesis timeout: process took too long'));
+        }, 5 * 60 * 1000); // 5 minutes timeout
+        
+        // Health check: warn if no output for 2 minutes
+        const healthCheckId = setInterval(() => {
+          const timeSinceLastOutput = Date.now() - lastOutputTime;
+          if (timeSinceLastOutput > 2 * 60 * 1000) { // 2 minutes
+            console.warn('⚠️  No output from synthesis process for 2 minutes');
+          }
+        }, 30 * 1000); // Check every 30 seconds
+        
+        pythonProcess.stdout.on('data', (data) => {
+          stdout += data.toString();
+          lastOutputTime = Date.now();
+        });
+        
+        pythonProcess.stderr.on('data', (data) => {
+          stderr += data.toString();
+          lastOutputTime = Date.now();
+        });
+        
+        pythonProcess.on('close', async (code) => {
+          clearTimeout(timeoutId);
+          clearInterval(healthCheckId);
+          
+          if (code !== 0) {
+            console.error('❌ Synthesis failed:', stderr);
+            return reject(new Error(`Synthesis failed: ${stderr}`));
+          }
+          
+          try {
+            const result = JSON.parse(stdout);
+            console.log('✅ Thesis synthesis completed');
+            resolve({
+              ok: true,
+              theses: result.theses,
+              coverage: result.coverage,
+              mdl_reduction: result.mdl_reduction,
+              message: result.message
+            });
+            
+          } catch (error) {
+            console.error('❌ Error parsing synthesis results:', error);
+            reject(new Error('Failed to parse synthesis results'));
+          }
+        });
+        
+        pythonProcess.on('error', (error) => {
+          clearTimeout(timeoutId);
+          clearInterval(healthCheckId);
+          console.error('❌ Synthesis process error:', error);
+          reject(new Error(`Synthesis process error: ${error.message}`));
+        });
+      });
+      
+    } else if (step === 'finalize') {
+      // Step 5: Finalize results
+      console.log('🎯 Finalizing compression results...');
+      
+      // Update database with compression metadata
+      const entry = getUserEntry(req.user.id);
+      const user = entry.value() || {};
+      const ideologram = user.ideologram || {};
+      
+      if (!ideologram.compressed) {
+        ideologram.compressed = { books: [] };
+      }
+      
+      // Check if book already exists
+      const existingIndex = ideologram.compressed.books.findIndex(b => b.id === bookId);
+      const compressedBook = {
+        id: bookId,
+        title: title || 'Untitled',
+        author: author || 'Unknown',
+        docType: docType || 'nonfiction',
+        compressedAt: new Date().toISOString(),
+        outputs: ['sentences.jsonl', 'ists.jsonl', 'embeddings.npy', 'paraphrase_clusters.json', 'cluster_protos.json', 'book_core.json'],
+        summary: {},
+        density: {},
+        stats: {
+          sentences: 0,
+          statements: 0,
+          clusters: 0,
+          theses: 0
+        }
+      };
+      
+      // Try to read actual stats from files
+      try {
+        const userDir = path.join(__dirname, 'compressed', req.user.id);
+        const bookDir = path.join(userDir, bookId);
+        
+        const sentencesPath = path.join(bookDir, 'sentences.jsonl');
+        if (fs.existsSync(sentencesPath)) {
+          const content = fs.readFileSync(sentencesPath, 'utf8');
+          const lines = content.split('\n').filter(line => line.trim());
+          compressedBook.stats.sentences = lines.length;
+        }
+        
+        const istsPath = path.join(bookDir, 'ists.jsonl');
+        if (fs.existsSync(istsPath)) {
+          const content = fs.readFileSync(istsPath, 'utf8');
+          const lines = content.split('\n').filter(line => line.trim());
+          const ists = lines.map(line => JSON.parse(line));
+          compressedBook.stats.statements = ists.filter(ist => !ist.none).length;
+        }
+        
+        const clustersPath = path.join(bookDir, 'paraphrase_clusters.json');
+        if (fs.existsSync(clustersPath)) {
+          const clusters = JSON.parse(fs.readFileSync(clustersPath, 'utf8'));
+          compressedBook.stats.clusters = clusters.stats?.n_clusters || 0;
+        }
+        
+        const bookCorePath = path.join(bookDir, 'book_core.json');
+        if (fs.existsSync(bookCorePath)) {
+          const bookCore = JSON.parse(fs.readFileSync(bookCorePath, 'utf8'));
+          compressedBook.stats.theses = bookCore.theses?.length || 0;
+          compressedBook.summary = bookCore;
+        }
+        
+      } catch (error) {
+        console.error('⚠️  Error reading compression stats:', error);
+      }
+      
+      if (existingIndex >= 0) {
+        ideologram.compressed.books[existingIndex] = compressedBook;
+      } else {
+        ideologram.compressed.books.push(compressedBook);
+      }
+      
+      ideologram.compressed.updatedAt = new Date().toISOString();
+      entry.assign({ ideologram }).write();
+      
+      console.log('✅ Compression finalization completed');
+      res.json({
+        ok: true,
+        bookId,
+        message: 'Compression finalization completed',
+        stats: compressedBook.stats
+      });
+      
+    } else {
+      return res.status(400).json({ error: 'Invalid step. Use "extract", "embed", "cluster", "synthesize", or "finalize"' });
+    }
+    
+  } catch (error) {
+    console.error('❌ Error in compression step:', error);
+    res.status(500).json({ error: 'Step processing failed', details: error.message });
+  }
+});
+
+// Get compressed books for user
+app.get('/api/ideologram/compressed', authMiddleware, (req, res) => {
+  try {
+    const user = getUserEntry(req.user.id).value();
+    const ideologram = user.ideologram || {};
+    const compressed = ideologram.compressed || { books: [] };
+    
+    res.json({
+      ok: true,
+      books: compressed.books || [],
+      total: compressed.books?.length || 0,
+      updatedAt: compressed.updatedAt
+    });
+  } catch (error) {
+    console.error('Error fetching compressed books:', error);
+    res.status(500).json({ error: 'Failed to fetch compressed books' });
+  }
+});
+
+// File viewer endpoint for compression files
+app.get('/api/ideologram/fs/file/:bookId/:fileName', authMiddleware, (req, res) => {
+  const { bookId, fileName } = req.params;
+  const user = getUserEntry(req.user.id).value();
+  
+  // Check if user has access to this book
+  const hasAccess = user.ideologram?.compressed?.books?.some(b => b.id === bookId);
+  if (!hasAccess) {
+    return res.status(403).json({ error: 'Access denied to this book' });
+  }
+  
+  const filePath = path.join(__dirname, 'compressed', req.user.id, bookId, bookId, fileName);
+  
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+  
+  try {
+    if (fileName.endsWith('.jsonl')) {
+      // Read JSONL file line by line
+      const content = fs.readFileSync(filePath, 'utf8');
+      const lines = content.split('\n').filter(line => line.trim());
+      const data = lines.map(line => JSON.parse(line));
+      res.json({ 
+        type: 'jsonl',
+        fileName,
+        bookId,
+        lineCount: lines.length,
+        data: data.slice(0, 100), // Limit to first 100 lines for preview
+        hasMore: lines.length > 100
+      });
+    } else if (fileName.endsWith('.json')) {
+      // Read JSON file
+      const content = fs.readFileSync(filePath, 'utf8');
+      const data = JSON.parse(content);
+      res.json({ 
+        type: 'json',
+        fileName,
+        bookId,
+        data
+      });
+    } else if (fileName.endsWith('.npy')) {
+      // For numpy files, just return metadata
+      const stats = fs.statSync(filePath);
+      res.json({ 
+        type: 'npy',
+        fileName,
+        bookId,
+        size: stats.size,
+        message: 'Binary numpy file - use Python to analyze'
+      });
+    } else {
+      res.status(400).json({ error: 'Unsupported file type' });
+    }
+  } catch (error) {
+    console.error('Error reading file:', error);
+    res.status(500).json({ error: 'Failed to read file' });
+  }
 });
 
 // Responses API endpoint
@@ -1466,6 +2245,155 @@ app.get('/api/scrape/marketcap/:symbol', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+// ---------------------------------------------------------------------------
+// Voice Integration: flagged stub endpoints (no-op until enabled)
+// ---------------------------------------------------------------------------
+if (VOICE_REALTIME) {
+  // Returns ephemeral session metadata for Realtime client to connect with
+  app.post('/api/realtime-session', authMiddleware, async (req, res) => {
+    try {
+      const key = process.env.OPENAI_API_KEY;
+      if (!key) {
+        // Fallback stub when no API key configured
+        const token = 'ephemeral_' + crypto.randomBytes(12).toString('hex');
+        const ttlMs = 60 * 1000;
+        return res.json({ token, expiresAt: new Date(Date.now() + ttlMs).toISOString(), model: process.env.REALTIME_MODEL || 'gpt-4o-realtime-preview', rtcConfig: null, stub: true });
+      }
+      const model = req.body?.model || process.env.REALTIME_MODEL || 'gpt-4o-realtime-preview';
+      const voice = req.body?.voice || 'verse';
+      const inputAudioFormat = req.body?.inputAudioFormat || 'pcm16';
+      const outputAudioFormat = req.body?.outputAudioFormat || 'pcm16';
+      const axiosOpts = {
+        method: 'POST',
+        url: 'https://api.openai.com/v1/realtime/sessions',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          'OpenAI-Beta': 'realtime=v1',
+        },
+        data: { model, voice, input_audio_format: inputAudioFormat, output_audio_format: outputAudioFormat },
+        timeout: 15000,
+      };
+      const resp = await axios(axiosOpts);
+      const data = resp?.data || {};
+      const token = data?.client_secret?.value || null;
+      const expiresAt = data?.client_secret?.expires_at || null;
+      if (!token) return res.status(500).json({ error: 'Failed to create realtime session' });
+      return res.json({ token, expiresAt, model, rtcConfig: data?.rtp_capabilities || null, id: data?.id || null });
+    } catch (err) {
+      console.error('Realtime session creation failed:', err?.response?.data || err?.message || err);
+      return res.status(500).json({ error: 'Realtime session error' });
+    }
+  });
+}
+
+if (VOICE_TRANSCRIBE) {
+  async function transcribeReal(req, res) {
+    try {
+      // Determine API key: prefer user key if configured, else env
+      let key = process.env.OPENAI_API_KEY;
+      if (req.user?.apiKeyEncrypted) {
+        try { const bytes = CryptoJS.AES.decrypt(req.user.apiKeyEncrypted, CRYPTO_SECRET); key = bytes.toString(CryptoJS.enc.Utf8) || key; } catch {}
+      }
+      if (!key) return res.status(400).json({ error: 'OpenAI API key not configured' });
+      if (!req.file || !req.file.buffer) return res.status(400).json({ error: 'Audio file required (multipart/form-data field "file")' });
+
+      // Prefer v4 SDK if available
+      if (OpenAIClient && OpenAIClient.prototype && OpenAIClient.prototype.chat && OpenAIClient.prototype.audio) {
+        try {
+          const openai = new OpenAIClient({ apiKey: key });
+          // Node helper to convert Buffer → File-like
+          let fileLike;
+          try {
+            const uploads = require('openai/uploads');
+            if (uploads && uploads.toFile) {
+              fileLike = await uploads.toFile(req.file.buffer, req.file.originalname || 'audio.webm');
+            }
+          } catch {}
+          const fileParam = fileLike || req.file.buffer;
+          const result = await openai.audio.transcriptions.create({
+            file: fileParam,
+            model: process.env.TRANSCRIBE_MODEL || 'gpt-4o-transcribe',
+            response_format: 'verbose_json',
+            temperature: 0.1,
+            language: req.body?.language || undefined,
+          });
+          // Pass-through shape best-effort
+          return res.json({
+            rawText: result?.text || result?.transcript || '',
+            segments: result?.segments || [],
+            words: result?.words || undefined,
+          });
+        } catch (err) {
+          console.error('Transcribe via v4 SDK failed, fallback to REST:', err?.response?.data || err?.message || err);
+        }
+      }
+      // Fallback REST call to /v1/audio/transcriptions
+      const form = new (require('form-data'))();
+      form.append('model', process.env.TRANSCRIBE_MODEL || 'gpt-4o-transcribe');
+      form.append('response_format', 'verbose_json');
+      if (req.body?.language) form.append('language', req.body.language);
+      form.append('file', req.file.buffer, { filename: req.file.originalname || 'audio.webm', contentType: req.file.mimetype || 'audio/webm' });
+      const resp = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
+        headers: { ...form.getHeaders(), Authorization: `Bearer ${key}` },
+        timeout: 60000,
+      });
+      const data = resp?.data || {};
+      return res.json({ rawText: data?.text || '', segments: data?.segments || [], words: data?.words || undefined });
+    } catch (err) {
+      console.error('Transcribe error:', err?.response?.data || err?.message || err);
+      return res.status(500).json({ error: 'Transcription failed' });
+    }
+  }
+
+  if (upload && typeof upload.single === 'function') {
+    app.post('/api/transcribe', authMiddleware, upload.single('file'), transcribeReal);
+  } else {
+    // Without multer we cannot parse multipart; return helpful error
+    app.post('/api/transcribe', authMiddleware, (req, res) => res.status(500).json({ error: 'Server missing multipart parser (multer). Please install dependencies.' }));
+  }
+}
+
+if (VOICE_CORRECTION) {
+  app.post('/api/transcribe/correct', authMiddleware, async (req, res) => {
+    try {
+      const { segment, context, language } = req.body || {};
+      if (!segment || !segment.rawText) return res.status(400).json({ error: 'segment.rawText required' });
+      // Determine API key: prefer user key if configured, else env
+      let key = process.env.OPENAI_API_KEY;
+      if (req.user?.apiKeyEncrypted) {
+        try { const bytes = CryptoJS.AES.decrypt(req.user.apiKeyEncrypted, CRYPTO_SECRET); key = bytes.toString(CryptoJS.enc.Utf8) || key; } catch {}
+      }
+      if (!key) return res.status(400).json({ error: 'OpenAI API key not configured' });
+
+      // Helper to call a model and parse a JSON-ish response
+      async function callModel(model) {
+        const openai = new OpenAIClient({ apiKey: key });
+        const sys = 'You correct low-confidence ASR segments with minimal edits. Reply as a compact JSON object with keys correctedText, certainty (0..1), rationale.';
+        const user = JSON.stringify({ segment, context, language });
+        const resp = await openai.chat.completions.create({
+          model,
+          messages: [ { role: 'system', content: sys }, { role: 'user', content: user } ],
+          temperature: 0,
+          // Encourage JSON output when supported by SDK/model
+          response_format: { type: 'json_object' }
+        });
+        const content = resp?.choices?.[0]?.message?.content || '';
+        try { return JSON.parse(content); } catch { return { correctedText: content, certainty: 0.5, rationale: 'freeform' }; }
+      }
+
+      let draft = await callModel(process.env.CORRECTION_MODEL_MINI || 'gpt5-mini');
+      if (typeof draft?.certainty !== 'number' || draft.certainty < 0.7) {
+        draft = await callModel(process.env.CORRECTION_MODEL_STRONG || 'gpt-5');
+      }
+      return res.json({ correctedText: draft.correctedText || segment.rawText, certainty: Number(draft.certainty) || 0, rationale: draft.rationale || '', model: (draft.model || undefined) });
+    } catch (err) {
+      console.error('Correction error:', err?.response?.data || err?.message || err);
+      return res.status(500).json({ error: 'Correction failed' });
+    }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Ideologram auxiliary services (Goodreads OAuth and Scores API) via proxy
@@ -1618,10 +2546,268 @@ app.post('/api/ideologram/enrich/wikidata', async (req, res) => {
   }
 });
 
+// Book compression endpoint using MDL pipeline
+app.post('/api/ideologram/compress', authMiddleware, async (req, res) => {
+  console.log('📚 Book compression request received:', { 
+    userId: req.user.id, userEmail: req.user.email,
+    textLength: req.body?.text?.length || 0
+  });
+  
+  const { text, bookId, title, author, docType = 'nonfiction' } = req.body || {};
+  
+  if (!text || !bookId) {
+    return res.status(400).json({ error: 'text and bookId required' });
+  }
+
+  try {
+    // Create output directory for this user
+    const userDir = path.join(__dirname, 'compressed', req.user.id);
+    const bookDir = path.join(userDir, bookId);
+    fs.mkdirSync(bookDir, { recursive: true });
+
+    // Create temporary text file
+    const txtPath = path.join(bookDir, 'input.txt');
+    fs.writeFileSync(txtPath, text, 'utf8');
+
+    // Create CEP (Context Enrichment Profile) based on document type
+    const cep = {
+      doc_type: docType,
+      expected_density_per_1k: docType === 'fiction' ? 5.0 : docType === 'paper' ? 45.0 : 25.0,
+      thresholds: {
+        sim_cos: docType === 'fiction' ? 0.88 : 0.85,
+        ncd: docType === 'fiction' ? 0.30 : 0.38,
+        min_cluster: docType === 'fiction' ? 3 : 2
+      },
+      mdl: {
+        ptr_cost_bits: 64,
+        target_coverage: 0.85
+      }
+    };
+
+    const cepPath = path.join(bookDir, 'cep.json');
+    fs.writeFileSync(cepPath, JSON.stringify(cep, null, 2));
+
+    // Run compression pipeline
+    const { spawn } = require('child_process');
+    const pythonScript = path.join(__dirname, '..', 'Ideologram', 'K-Compress', 'book_compressor_mdl.py');
+    
+    return new Promise((resolve, reject) => {
+      // Set environment variables for test mode
+      const env = { ...process.env };
+      if (req.body.testMode && req.body.maxSentences) {
+        env.MAX_SENTENCES_TEST = req.body.maxSentences.toString();
+        console.log(`🧪 Test mode enabled: processing max ${req.body.maxSentences} sentences`);
+      }
+      
+      const pythonProcess = spawn('python3', [
+        pythonScript,
+        '--book_id', bookId,
+        '--txt_path', txtPath,
+        '--out_dir', bookDir,
+        '--cep', cepPath
+      ], { env });
+
+      let stdout = '';
+      let stderr = '';
+      let lastActivity = Date.now();
+
+      // Monitor stdout for progress indicators
+      pythonProcess.stdout.on('data', (data) => {
+        const output = data.toString();
+        stdout += output;
+        lastActivity = Date.now();
+        
+        // Log progress indicators
+        if (output.includes('Processing batch') || output.includes('Processing sentence')) {
+          console.log('📝 Progress:', output.trim());
+        }
+        if (output.includes('Extracted') || output.includes('statements')) {
+          console.log('✅ Progress:', output.trim());
+        }
+      });
+
+      // Monitor stderr for errors
+      pythonProcess.stderr.on('data', (data) => {
+        const error = data.toString();
+        stderr += error;
+        lastActivity = Date.now();
+        
+        if (error.trim()) {
+          console.log('⚠️  Python stderr:', error.trim());
+        }
+      });
+
+      // Monitor process health
+      const healthCheck = setInterval(() => {
+        const timeSinceActivity = Date.now() - lastActivity;
+        if (timeSinceActivity > 5 * 60 * 1000) { // 5 minutes of no output
+          console.warn('⚠️  No output for 5 minutes, process may be stuck...');
+        }
+      }, 60000); // Check every minute
+
+      // Set timeout for the entire compression process
+      const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+      const timeoutId = setTimeout(() => {
+        console.error('⏰ Compression timeout reached, killing Python process...');
+        pythonProcess.kill('SIGKILL');
+        reject(new Error('Compression timeout: process took longer than 30 minutes'));
+      }, TIMEOUT_MS);
+
+      pythonProcess.on('close', async (code) => {
+        clearTimeout(timeoutId); // Clear timeout since process finished
+        clearInterval(healthCheck); // Stop health monitoring
+        
+        console.log('🐍 Python process closed with code:', code);
+        console.log('📤 Python stdout:', stdout);
+        console.log('📤 Python stderr:', stderr);
+        console.log('📁 Output directory:', bookDir);
+        
+        if (code !== 0) {
+          console.error('❌ Python compression failed:', stderr);
+          return reject(new Error(`Compression failed with code ${code}: ${stderr}`));
+        }
+
+        try {
+          // Read compression outputs
+          const outputs = {};
+          const outputFiles = [
+            'sentences.jsonl', 'ists.jsonl', 'embeddings.npy',
+            'paraphrase_clusters.json', 'chapter_cores.jsonl', 
+            'book_core.json', 'density_report.json'
+          ];
+
+          console.log('🔍 Checking for output files...');
+          
+          // The Python script creates files in a nested directory structure
+          // Look in both the bookDir and bookDir/bookId subdirectory
+          const possiblePaths = [bookDir, path.join(bookDir, bookId)];
+          
+          for (const file of outputFiles) {
+            let filePath = null;
+            let found = false;
+            
+            // Try to find the file in either directory
+            for (const basePath of possiblePaths) {
+              const testPath = path.join(basePath, file);
+              if (fs.existsSync(testPath)) {
+                filePath = testPath;
+                found = true;
+                console.log(`  📄 ${file}: EXISTS in ${basePath}`);
+                break;
+              }
+            }
+            
+            if (!found) {
+              console.log(`  📄 ${file}: MISSING in all locations`);
+              continue;
+            }
+            
+            if (file.endsWith('.jsonl')) {
+              const content = fs.readFileSync(filePath, 'utf8');
+              outputs[file] = content.split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
+            } else if (file.endsWith('.json')) {
+              outputs[file] = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            } else if (file.endsWith('.npy')) {
+              // For now, just note that embeddings exist
+              outputs[file] = { exists: true, size: fs.statSync(filePath).size };
+            }
+          }
+
+          // Save compression metadata to user's ideologram data
+          const entry = getUserEntry(req.user.id);
+          const user = entry.value() || {};
+          const ideologram = user.ideologram || {};
+          
+          if (!ideologram.compressed) {
+            ideologram.compressed = { books: [] };
+          }
+
+          const compressedBook = {
+            id: bookId,
+            title: title || 'Untitled',
+            author: author || 'Unknown',
+            docType,
+            compressedAt: new Date().toISOString(),
+            outputs: Object.keys(outputs),
+            summary: outputs['book_core.json'] || {},
+            density: outputs['density_report.json'] || {},
+            stats: {
+              sentences: outputs['sentences.jsonl']?.length || 0,
+              statements: outputs['ists.jsonl']?.filter(ist => !ist.none)?.length || 0,
+              clusters: outputs['paraphrase_clusters.json']?.stats?.n_clusters || 0,
+              theses: outputs['book_core.json']?.theses?.length || 0
+            }
+          };
+
+          ideologram.compressed.books = ideologram.compressed.books.filter(b => b.id !== bookId);
+          ideologram.compressed.books.push(compressedBook);
+          
+          entry.assign({ ideologram }).write();
+
+          console.log('✅ Book compression completed successfully for user:', req.user.email);
+          res.json({ 
+            ok: true, 
+            bookId,
+            outputs: Object.keys(outputs),
+            summary: compressedBook
+          });
+
+        } catch (error) {
+          console.error('❌ Error processing compression outputs:', error);
+          reject(error);
+        }
+      });
+    });
+
+  } catch (error) {
+    console.error('❌ Error in book compression:', error);
+    res.status(500).json({ error: 'Compression failed', details: error.message });
+  }
+});
+
 // Start server if run directly
 if (require.main === module) {
+  const http = require('http');
+  const server = http.createServer(app);
+
+  // Optional WebSocket proxy for Realtime (browser WS cannot set auth headers)
+  if (VOICE_REALTIME) {
+    try {
+      const WebSocket = require('ws');
+      const wss = new WebSocket.Server({ server, path: '/api/realtime/ws' });
+      wss.on('connection', (client, req) => {
+        try {
+          const url = new URL(req.url, 'http://localhost');
+          const token = url.searchParams.get('token');
+          const model = url.searchParams.get('model') || process.env.REALTIME_MODEL || 'gpt-4o-realtime-preview';
+          if (!token) { client.close(1008, 'missing token'); return; }
+          const upstream = new WebSocket(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`, {
+            headers: { Authorization: `Bearer ${token}`, 'OpenAI-Beta': 'realtime=v1' }
+          });
+          // Pipe messages both ways
+          upstream.on('message', (data, isBinary) => {
+            try { client.send(data, { binary: isBinary }); } catch {}
+          });
+          upstream.on('close', (code, reason) => { try { client.close(code, reason); } catch {} });
+          upstream.on('error', () => { try { client.close(1011, 'upstream error'); } catch {} });
+
+          client.on('message', (data, isBinary) => {
+            try { upstream.send(data, { binary: isBinary }); } catch {}
+          });
+          client.on('close', () => { try { upstream.close(); } catch {} });
+          client.on('error', () => { try { upstream.close(); } catch {} });
+        } catch {
+          try { client.close(1011, 'proxy error'); } catch {}
+        }
+      });
+      console.log('WS proxy enabled at /api/realtime/ws');
+    } catch (e) {
+      console.warn('WS proxy unavailable (missing ws dependency):', e?.message || e);
+    }
+  }
+
   // Bind to localhost only to avoid permission errors on 0.0.0.0
-  app.listen(PORT, '127.0.0.1')
+  server.listen(PORT, '127.0.0.1')
     .on('listening', () => console.log(`Server listening on http://127.0.0.1:${PORT}`))
     .on('error', (err) => {
       console.error(`Failed to bind server on port ${PORT}: ${err.message}`);

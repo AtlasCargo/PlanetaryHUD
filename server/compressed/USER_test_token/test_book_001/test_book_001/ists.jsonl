@@ -1,0 +1,4 @@
+{"id": "test_book_001:0.0.0:6e7854ef", "triple": ["text", "states", "The free market economy operates on principles of supply and demand"], "polarity": "affirm", "modality": "assertive", "tense": "timeless", "hedging": "none", "scope": "narrator_voice", "entities": [], "evidence_span": [0, 68], "confidence": 0.45}
+{"none": true}
+{"none": true}
+{"id": "test_book_001:0.0.3:2827cda3", "triple": ["text", "states", "These economic systems represent different approaches to resource allocation and wealth distribution"], "polarity": "affirm", "modality": "assertive", "tense": "timeless", "hedging": "none", "scope": "narrator_voice", "entities": [], "evidence_span": [0, 101], "confidence": 0.45}

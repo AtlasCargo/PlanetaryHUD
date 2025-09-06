@@ -1,0 +1,13 @@
+{
+  "doc_type": "nonfiction",
+  "expected_density_per_1k": 25,
+  "thresholds": {
+    "sim_cos": 0.85,
+    "ncd": 0.38,
+    "min_cluster": 2
+  },
+  "mdl": {
+    "ptr_cost_bits": 64,
+    "target_coverage": 0.85
+  }
+}

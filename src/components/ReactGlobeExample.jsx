@@ -14,21 +14,50 @@ import Portal from './Portal';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import GraphComponent from './GraphComponent';
+import LayoutShell from '../features/ui/LayoutShell';
+import TooltipLayer from '../features/ui/TooltipLayer';
+import eventBus from '../shared/events/eventBus';
+import { Events } from '../shared/events/contracts';
 import Globe from './Globe';
+import GlobeController from '../features/globe/GlobeController';
+import DatasetControlPanel from '../features/datasets/DatasetControlPanel';
+import BottomHud from '../features/ui/BottomHud';
+import LeftSidebar from '../features/ui/LeftSidebar';
 import { scaleSequentialSqrt } from 'd3-scale';
 import { interpolateYlOrRd, interpolateRdYlGn, interpolateGreys } from 'd3-scale-chromatic';
 import { csvParse } from 'd3-dsv';
-import { loadDataset, getAvailableDatasets } from '../utils/loadDataset';
+import { datasetsApi } from '../features/datasets/api';
+import { DatasetProvider, useDatasets } from '../features/datasets/DatasetContext';
+import DatasetSelector from '../features/datasets/DatasetSelector';
 import ChatWindow from './ChatWindow';
 import Settings from '../pages/Settings';
+import JSONFileExplorer from './JSONFileExplorer';
+import ThemeSwitcher from './UI/ThemeSwitcher';
+import SidebarFilesPanel from '../features/ideologram/SidebarFilesPanel';
+import SidebarScoresPanel from '../features/ideologram/SidebarScoresPanel';
+import ToReadList from '../features/ideologram/ToReadList';
+import WidgetCard from '../features/ideologram/WidgetCard';
+import LibraryUploadPanel from '../features/ideologram/LibraryUploadPanel';
+import CompressionStatusPanel from '../features/ideologram/CompressionStatusPanel';
+import ChatHistoryUploadPanel from '../features/ideologram/ChatHistoryUploadPanel';
+import ChatHistoryAnalysisPanel from '../features/ideologram/ChatHistoryAnalysisPanel';
+import IdeologramPanel from '../features/ideologram/IdeologramPanel';
+import ChatIntegrationInfo from '../features/ideologram/ChatIntegrationInfo';
+import TextCompressionPanel from '../features/ideologram/TextCompressionPanel';
+import CompressionResultsPanel from '../features/ideologram/CompressionResultsPanel';
+import SettingsPanel from '../features/ui/SettingsPanel';
+import LiquidGlassShaderBackground from './Effects/LiquidGlassShaderBackground';
+import RealtimeCaptionOverlay from '../features/voice/RealtimeCaptionOverlay';
 import { getCountries, getIndicators, getIndicatorData } from '../services/worldBankApi';
 import { sendMessage, setApiKey } from '../services/openaiClient';
 import { AuthContext } from '../contexts/AuthContext';
 import FinancialDashboard from './FinancialDashboard'; // Import FinancialDashboard
 import { IdeologramWidget } from '../ideologram';
 import { SAMPLE_ANCHORS, parseGoodreadsCsv, analyzeTextLexical, computeIdeologram, enrichBook, enrichBookWikidata } from '../ideologram';
+import { useTheme } from '../contexts/ThemeContext';
+// import ThemeDebug from './UI/ThemeDebug';
 
-export default function ReactGlobeExample() {
+function ReactGlobeExampleInner() {
   // -------------------------------
   // REFS & STATE
   // -------------------------------
@@ -37,6 +66,7 @@ export default function ReactGlobeExample() {
   const isUserInteracting = useRef(false);
   const autoRotateAnimationId = useRef(null);
   const initialLoadRef = useRef(true);
+  const { currentTheme, isLiquidGlassActive } = useTheme();
 
   const [countries, setCountries] = useState({ features: [] });
   const [hoverD, setHoverD] = useState(null);
@@ -178,7 +208,39 @@ export default function ReactGlobeExample() {
   const [epubMeta, setEpubMeta] = useState({ title: '', author: '', isbn: '' });
   const [ideoLoading, setIdeoLoading] = useState(false);
   const [ideoError, setIdeoError] = useState('');
+  const [ideoSelectedFile, setIdeoSelectedFile] = useState(null);
   const [ideoScores, setIdeoScores] = useState([]);
+  const [ideoCompressing, setIdeoCompressing] = useState(false);
+  const [ideoCompressionResult, setIdeoCompressionResult] = useState(null);
+  const [ideoCompressionStatus, setIdeoCompressionStatus] = useState({
+    step: 'idle', // 'idle', 'extracting', 'clustering', 'synthesizing', 'complete'
+    sentences: 0,
+    statements: 0,
+    discarded: 0,
+    clusters: 0,
+    theses: 0,
+    coverage: 0,
+    mdlReduction: 0,
+    currentStep: '',
+    progress: 0,
+    canRunNext: false,
+    nextStep: '',
+    debugMode: false,
+    pipelineSteps: [
+      { id: 'extract', name: 'Extract Statements', status: 'pending', description: 'Parse text and extract ISTs using GPT-5' },
+      { id: 'embed', name: 'Generate Embeddings', status: 'pending', description: 'Create semantic embeddings for statements' },
+      { id: 'cluster', name: 'Cluster Statements', status: 'pending', description: 'Group similar statements using similarity' },
+      { id: 'synthesize', name: 'Generate Theses', status: 'pending', description: 'Create thesis summaries and MDL optimization' },
+      { id: 'finalize', name: 'Finalize Results', status: 'pending', description: 'Save outputs and update file system' }
+    ],
+    currentStepIndex: 0,
+    stepResults: {},
+    errors: []
+  });
+  
+  const [analyzedBooks, setAnalyzedBooks] = useState([]);
+  const [selectedBook, setSelectedBook] = useState(null);
+  const [bookAnalysisData, setBookAnalysisData] = useState(null);
   const [fileTree, setFileTree] = useState(null);
   const [ideoEnrichedMap, setIdeoEnrichedMap] = useState({}); // { key: { meta, axes } }
   const [ideoEnriching, setIdeoEnriching] = useState({}); // { key: boolean }
@@ -772,6 +834,30 @@ export default function ReactGlobeExample() {
                   ))}
                 </ul>
               )}
+              {node.name === 'compressed.json' && Array.isArray(filePreviews['compressed.json']) && (
+                <ul className="list-none m-0 p-0 max-h-40 overflow-auto">
+                  {filePreviews['compressed.json'].slice(0, 100).map((book, i) => (
+                    <li key={i} className="py-0.5 border-b border-gray-800">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="font-semibold text-green-400">{book.title || 'Untitled'}</span>
+                          {book.author && <span className="text-gray-400"> by {book.author}</span>}
+                        </div>
+                        <span className="text-xs text-gray-500">{book.docType || 'nonfiction'}</span>
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        📊 {book.stats?.statements || 0} statements · 🎯 {book.stats?.theses || 0} theses · 
+                        📅 {book.compressedAt ? new Date(book.compressedAt).toLocaleDateString() : 'N/A'}
+                      </div>
+                      {book.summary?.theses && book.summary.theses.length > 0 && (
+                        <div className="text-xs text-gray-300 mt-1">
+                          <span className="text-green-400">Key thesis:</span> {book.summary.theses[0]?.triple?.[0] || 'Subject'} {book.summary.theses[0]?.triple?.[1] || 'predicate'} {book.summary.theses[0]?.triple?.[2] || 'object'}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </div>
@@ -944,8 +1030,84 @@ export default function ReactGlobeExample() {
           setFileTree(tree);
         } catch {}
       }
+      
+      // Load analyzed books
+      loadAnalyzedBooks();
     })();
   }, [mode]);
+  
+  // Function to load all analyzed books
+  const loadAnalyzedBooks = async () => {
+    try {
+      const response = await API.get('/api/ideologram/compressed');
+      if (response.data && response.data.books) {
+        setAnalyzedBooks(response.data.books);
+        // Select the most recent book by default
+        if (response.data.books.length > 0) {
+          const mostRecent = response.data.books.sort((a, b) => 
+            new Date(b.compressedAt) - new Date(a.compressedAt)
+          )[0];
+          setSelectedBook(mostRecent);
+          loadBookAnalysisData(mostRecent.id);
+        }
+      }
+    } catch (error) {
+      console.log('No compressed books found yet');
+    }
+  };
+  
+  // Function to load detailed analysis data for a specific book
+  const loadBookAnalysisData = async (bookId) => {
+    try {
+      const response = await API.get(`/api/ideologram/fs/file/${bookId}/sentences.jsonl`);
+      const sentences = response.data.data || [];
+      
+      // Try to load other analysis files
+      let ists = [];
+      let clusters = null;
+      let bookCore = null;
+      
+      try {
+        const istsResponse = await API.get(`/api/ideologram/fs/file/${bookId}/ists.jsonl`);
+        ists = istsResponse.data.data || [];
+      } catch (e) {
+        console.log('No ISTs found for this book');
+      }
+      
+      try {
+        const clustersResponse = await API.get(`/api/ideologram/fs/file/${bookId}/paraphrase_clusters.json`);
+        clusters = clustersResponse.data.data;
+      } catch (e) {
+        console.log('No clusters found for this book');
+      }
+      
+      try {
+        const bookCoreResponse = await API.get(`/api/ideologram/fs/file/${bookId}/book_core.json`);
+        bookCore = bookCoreResponse.data.data;
+      } catch (e) {
+        console.log('No book core found for this book');
+      }
+      
+      setBookAnalysisData({
+        bookId,
+        sentences,
+        ists,
+        clusters,
+        bookCore,
+        stats: {
+          totalSentences: sentences.length,
+          totalStatements: ists.filter(ist => !ist.none).length,
+          discardedSentences: sentences.length - ists.filter(ist => !ist.none).length,
+          totalClusters: clusters?.stats?.n_clusters || 0,
+          totalTheses: bookCore?.theses?.length || 0,
+          coverage: bookCore?.coverage_fraction || 0,
+          mdlReduction: bookCore?.mdl_reduction_bits || 0
+        }
+      });
+    } catch (error) {
+      console.error('Error loading book analysis data:', error);
+    }
+  };
   // Mini chat input
   const [miniInput, setMiniInput] = useState('');
   const [miniKeyInput, setMiniKeyInput] = useState('');
@@ -1065,6 +1227,12 @@ export default function ReactGlobeExample() {
   const [enableCpuMonitor, setEnableCpuMonitor] = useState(false);
   const [cpuUsage, setCpuUsage] = useState(0);
 
+  // Cursor mode state (must be declared before any effects/JSX that use it)
+  const [cursorMode, setCursorMode] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState({ lat: 0, lng: 0 });
+  const [cursorCountry, setCursorCountry] = useState(null);
+  const [cursorHoverCountry, setCursorHoverCountry] = useState(null);
+
   // Sidebar state
   const [leftHidden, setLeftHidden] = useState(false);
   const [rightHidden, setRightHidden] = useState(false);
@@ -1073,8 +1241,16 @@ export default function ReactGlobeExample() {
   const [activeDataset, setActiveDataset] = useState(null);
   const [activeGlobeDataset, setActiveGlobeDataset] = useState(null);
   const [selectedDataset, setSelectedDataset] = useState("");
-  const [availableDatasets, setAvailableDatasets] = useState([]);
-  const [isLoadingDatasets, setIsLoadingDatasets] = useState(false);
+  const {
+    available: ctxAvailable = [],
+    select: selectDatasetFromProvider,
+    series: ctxSeries = [],
+    years: ctxYears = [],
+    selectedYear: ctxSelectedYear,
+    isLoading: ctxIsLoading,
+    selectedId: ctxSelectedId,
+    setSelectedYear: setProviderSelectedYear
+  } = useDatasets() || {};
   const [isGlobeReady, setIsGlobeReady] = useState(false);
 
   // Globe UI toggles
@@ -1102,6 +1278,79 @@ export default function ReactGlobeExample() {
     return isNaN(saved) ? 0 : saved;
   });
   useEffect(() => { localStorage.setItem('settingsHoverCount', settingsHoverCount); }, [settingsHoverCount]);
+
+  // Keyboard navigation for cursor mode
+  useEffect(() => {
+    if (!cursorMode) return;
+
+    const handleKeyDown = (e) => {
+      const step = 5; // Degrees to move per keypress
+      
+      switch (e.key.toLowerCase()) {
+        case 'w':
+        case 'arrowup':
+          setCursorPosition(prev => ({ ...prev, lat: Math.min(90, prev.lat + step) }));
+          break;
+        case 's':
+        case 'arrowdown':
+          setCursorPosition(prev => ({ ...prev, lat: Math.max(-90, prev.lat - step) }));
+          break;
+        case 'a':
+        case 'arrowleft':
+          setCursorPosition(prev => ({ ...prev, lng: prev.lng - step }));
+          break;
+        case 'd':
+        case 'arrowright':
+          setCursorPosition(prev => ({ ...prev, lng: prev.lng + step }));
+          break;
+        case 'enter':
+        case ' ':
+          // Select the country at cursor position
+          if (cursorHoverCountry) {
+            setCursorCountry(cursorHoverCountry);
+            console.log('Selected country:', cursorHoverCountry);
+          }
+          break;
+        case 'escape':
+          setCursorMode(false);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cursorMode, cursorHoverCountry]);
+
+  // Get user location and set initial cursor position
+  useEffect(() => {
+    if (cursorMode && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setCursorPosition({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+          console.log('Cursor positioned at user location:', {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          console.log('Could not get user location, using default:', error);
+          // Default to a central location if geolocation fails
+          setCursorPosition({ lat: 0, lng: 0 });
+        }
+      );
+    }
+  }, [cursorMode]);
+
+  // Auto-disable rotation when cursor mode is active
+  useEffect(() => {
+    if (cursorMode && rotationEnabled) {
+      setRotationEnabled(false);
+      console.log('Auto-disabled globe rotation for cursor mode');
+    }
+  }, [cursorMode, rotationEnabled]);
 
   // Data states for population or life expectancy
   const [populationData, setPopulationData] = useState(null);
@@ -1143,7 +1392,7 @@ export default function ReactGlobeExample() {
   const handleDatasetSearch = () => {
     if (!datasetQuery.trim()) return;
     const q = datasetQuery.toLowerCase();
-    const results = availableDatasets.filter(d =>
+    const results = (ctxAvailable || []).filter(d =>
       d.title.toLowerCase().includes(q) || d.id.toLowerCase().includes(q)
     );
     setDatasetResults(results.slice(0, 10));
@@ -1197,6 +1446,112 @@ export default function ReactGlobeExample() {
   const handleProcessDataset = (datasetId) => {
     const realId = INDICATOR_ALIASES[datasetId] || datasetId;
     handleDatasetSelect(realId, 'graph');
+  };
+  
+  // Avatar Rigging Control Functions
+  const updateSkeletonBone = (boneName, property, axis, value) => {
+    setSkeletonData(prev => ({
+      ...prev,
+      [boneName]: {
+        ...prev[boneName],
+        [property]: {
+          ...prev[boneName][property],
+          [axis]: value
+        }
+      }
+    }));
+  };
+  
+  const updateFaceDriver = (property, value) => {
+    setFaceDriver(prev => ({
+      ...prev,
+      [property]: value
+    }));
+  };
+  
+  const applyAnimationPreset = (presetName) => {
+    const presets = {
+      idle: {
+        head: { rotation: { x: 0, y: 0, z: 0 } },
+        spine: { rotation: { x: 0, y: 0, z: 0 } },
+        leftArm: { rotation: { x: 0, y: 0, z: 0 } },
+        rightArm: { rotation: { x: 0, y: 0, z: 0 } },
+        leftLeg: { rotation: { x: 0, y: 0, z: 0 } },
+        rightLeg: { rotation: { x: 0, y: 0, z: 0 } }
+      },
+      wave: {
+        rightArm: { rotation: { x: 0, y: 0, z: 45 } },
+        rightHand: { rotation: { x: 0, y: 0, z: 90 } }
+      },
+      point: {
+        rightArm: { rotation: { x: 0, y: 0, z: 0 } },
+        rightHand: { rotation: { x: 0, y: 0, z: 0 } }
+      },
+      sit: {
+        spine: { rotation: { x: 45, y: 0, z: 0 } },
+        leftLeg: { rotation: { x: 90, y: 0, z: 0 } },
+        rightLeg: { rotation: { x: 90, y: 0, z: 0 } }
+      }
+    };
+    
+    if (presets[presetName]) {
+      setSkeletonData(prev => ({
+        ...prev,
+        ...presets[presetName]
+      }));
+    }
+  };
+  
+  const resetSkeleton = () => {
+    setSkeletonData({
+      head: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 1.7, z: 0 } },
+      neck: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 1.6, z: 0 } },
+      spine: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 1.4, z: 0 } },
+      leftShoulder: { rotation: { x: 0, y: 0, z: 0 }, position: { x: -0.3, y: 1.5, z: 0 } },
+      rightShoulder: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0.3, y: 1.5, z: 0 } },
+      leftArm: { rotation: { x: 0, y: 0, z: 0 }, position: { x: -0.5, y: 1.3, z: 0 } },
+      rightArm: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0.5, y: 1.3, z: 0 } },
+      leftHand: { rotation: { x: 0, y: 0, z: 0 }, position: { x: -0.7, y: 1.0, z: 0 } },
+      rightHand: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0.7, y: 1.0, z: 0 } },
+      leftLeg: { rotation: { x: 0, y: 0, z: 0 }, position: { x: -0.2, y: 0.8, z: 0 } },
+      rightLeg: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0.2, y: 0.8, z: 0 } },
+      leftFoot: { rotation: { x: 0, y: 0, z: 0 }, position: { x: -0.2, y: 0.1, z: 0.2 } },
+      rightFoot: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0.2, y: 0.1, z: 0.2 } }
+    });
+  };
+  
+  const resetFaceDriver = () => {
+    setFaceDriver({
+      smile: 0,
+      surprise: 0,
+      anger: 0,
+      sadness: 0,
+      fear: 0,
+      disgust: 0,
+      eyeOpenness: 0.5,
+      eyebrowHeight: 0.5,
+      mouthOpenness: 0.5,
+      jawPosition: 0.5,
+      cheekPuff: 0,
+      lipPucker: 0
+    });
+  };
+  
+  const exportRigData = () => {
+    const rigData = {
+      skeleton: skeletonData,
+      faceDriver: faceDriver,
+      timestamp: new Date().toISOString()
+    };
+    
+    const dataStr = JSON.stringify(rigData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'avatar_rig_data.json';
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   // -------------------------------
@@ -1398,11 +1753,19 @@ export default function ReactGlobeExample() {
     };
   }, [enableCpuMonitor]);
 
-  // Hover handler
+  // Hover handler: drive tooltip events
   const handleHover = useCallback((hoveredCountry, event) => {
     setHoverD(hoveredCountry);
-    if (event) {
+    if (hoveredCountry && event) {
       setTooltipPosition({ x: event.clientX, y: event.clientY });
+      const content = (
+        <div>
+          <div className="font-bold text-lg">{hoveredCountry.properties.ADMIN}</div>
+        </div>
+      );
+      eventBus.emit(Events.UiTooltipShow, { x: event.clientX, y: event.clientY, content });
+    } else {
+      eventBus.emit(Events.UiTooltipHide);
     }
   }, []);
 
@@ -1486,59 +1849,32 @@ export default function ReactGlobeExample() {
       .catch(() => {});
   }, []);
 
-  // Fetch available datasets (example utility function)
-  const fetchDatasets = async () => {
-    setIsLoadingDatasets(true);
-    try {
-      const remote = await getAvailableDatasets();
-      console.log('Datasets from server:', remote.map(d => d.id));
-      // Use server-provided static + custom datasets (includes GDP per Capita)
-      setAvailableDatasets(remote);
-    } catch (error) {
-      console.error('Error fetching datasets', error);
-    }
-    setIsLoadingDatasets(false);
-  };
+  // Datasets are now provided via DatasetProvider; fetching moved there.
 
+  // Switch to provider-driven dataset loading: map provider series into local dataset-specific shapes
   useEffect(() => {
-    fetchDatasets();
-  }, []);
-
-  // Load dataset for globe
-  const loadGlobeData = async () => {
+    if (!ctxSelectedId || !Array.isArray(ctxSeries)) return;
     try {
-      setIsLoadingGlobeData(true);
-      const data = await loadDataset(activeGlobeDataset);
-      if (activeGlobeDataset === 'population') {
-        setPopulationData(data);
-        const yrs = [...new Set(data.map(d => d.year))];
-        setPopulationYears(yrs);
-        setSelectedPopulationYear(Math.max(...yrs));
-      } else if (activeGlobeDataset === 'life-expectancy') {
-        setLifeExpData(data);
-        const yrsLE = [...new Set(data.map(item => item.year))];
-        setLifeExpYears(yrsLE);
-        setSelectedLifeExpYear(Math.max(...yrsLE));
-      } else if (activeGlobeDataset === 'NY.GDP.PCAP.PP.KD') {
-        // Use all fetched GDP data (ISO3 codes should match globe features)
-        console.log('Loaded GDP data count:', data.length);
-        setGdpData(data);
-        const yrsGdp = Array.from(new Set(data.map(item => item.year))).sort((a,b)=>a-b);
-        setGdpYears(yrsGdp);
-        setSelectedGdpYear(Math.max(...yrsGdp));
+      setIsLoadingGlobeData(!!ctxIsLoading);
+      if (ctxSelectedId === 'population') {
+        setPopulationData(ctxSeries);
+        setPopulationYears(ctxYears);
+        if (ctxSelectedYear != null) setSelectedPopulationYear(ctxSelectedYear);
+      } else if (ctxSelectedId === 'life-expectancy') {
+        setLifeExpData(ctxSeries);
+        setLifeExpYears(ctxYears);
+        if (ctxSelectedYear != null) setSelectedLifeExpYear(ctxSelectedYear);
+      } else if (ctxSelectedId === 'NY.GDP.PCAP.PP.KD') {
+        setGdpData(ctxSeries);
+        setGdpYears(ctxYears);
+        if (ctxSelectedYear != null) setSelectedGdpYear(ctxSelectedYear);
       }
-    } catch (error) {
-      setGlobeDataError(error.message);
+    } catch (e) {
+      setGlobeDataError(e?.message || 'Failed to map dataset');
     } finally {
       setIsLoadingGlobeData(false);
     }
-  };
-
-  useEffect(() => {
-    if (activeGlobeDataset) {
-      loadGlobeData();
-    }
-  }, [activeGlobeDataset, selectedPopulationYear, selectedLifeExpYear, selectedGdpYear]);
+  }, [ctxSelectedId, ctxSeries, ctxYears, ctxSelectedYear, ctxIsLoading]);
 
   // Debug GDP state
   useEffect(() => {
@@ -1554,16 +1890,17 @@ export default function ReactGlobeExample() {
   const handleDatasetSelect = async (datasetId, displayType = 'graph') => {
     setSelectedDataset(datasetId);
     // Ensure dataset object exists
-    let ds = availableDatasets.find(d => d.id === datasetId);
+    let ds = (ctxAvailable || []).find(d => d.id === datasetId);
     if (!ds) {
       // find in search results
       const fromSearch = datasetSearchResults.find(r => r.id === datasetId);
       ds = fromSearch ? { id: fromSearch.id, title: fromSearch.name } : { id: datasetId, title: datasetId }; 
-      setAvailableDatasets(prev => [...prev, ds]);
     }
     if (displayType === 'globe') {
       setIsGlobeReset(false);
       setActiveGlobeDataset(datasetId);
+      // trigger provider load for globe dataset
+      try { selectDatasetFromProvider && selectDatasetFromProvider(datasetId); } catch {}
       setShowGlobe(true);
       setShowGraph(false);
       setActiveDataset(null);
@@ -1581,43 +1918,10 @@ export default function ReactGlobeExample() {
   }, [selectedDataset, activeGlobeDataset]);
 
   const renderDatasetSelector = () => (
-    <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20">
-      <h3 className="text-sm font-bold text-neon-blue mb-2">Available Datasets</h3>
-      {isLoadingDatasets ? (
-        <div className="text-neon-blue">Loading datasets...</div>
-      ) : (
-        <>
-          <select
-            className="w-full p-2 rounded bg-gray-800 text-white"
-            value={selectedDataset}
-            onChange={(e) => setSelectedDataset(e.target.value)}
-          >
-            <option value="">Select a dataset</option>
-            {availableDatasets.map((dataset) => (
-              <option key={dataset.id} value={dataset.id}>
-                {dataset.title}
-              </option>
-            ))}
-          </select>
-          <div className="flex gap-2 mt-2">
-            <button
-              className="flex-1 p-2 bg-neon-blue rounded text-black hover:bg-neon-blue/80 transition-colors"
-              onClick={() => selectedDataset && handleDatasetSelect(selectedDataset, 'graph')}
-              disabled={!selectedDataset}
-            >
-              Show Graph
-            </button>
-            <button
-              className="flex-1 p-2 bg-neon-purple text-black rounded hover:bg-neon-purple/80 transition-colors"
-              onClick={() => selectedDataset && handleDatasetSelect(selectedDataset, 'globe')}
-              disabled={!selectedDataset}
-            >
-              Show on Globe
-            </button>
-          </div>
-        </>
-      )}
-    </div>
+    <DatasetSelector
+      onSelectGraph={(id) => handleDatasetSelect(id, 'graph')}
+      onSelectGlobe={(id) => handleDatasetSelect(id, 'globe')}
+    />
   );
 
   // Reset globe
@@ -1648,7 +1952,7 @@ export default function ReactGlobeExample() {
   const rightPanelWidth = rightHidden ? '0' : `${sidebarBaseWidth}%`;
 
   // Auth state and avatars for mini chat
-  const { user, logout, loginWithGoogle } = useContext(AuthContext);
+  const { user, logout, loginWithGoogle, isLoggedIn } = useContext(AuthContext);
   const defaultAssistantAvatar = '/default-assistant-avatar.png';
   // Load assistant and user avatars from storage or defaults
   const assistantAvatarUrl = localStorage.getItem('assistantAvatarUrl') || defaultAssistantAvatar;
@@ -1657,9 +1961,57 @@ export default function ReactGlobeExample() {
 
   const [warRoomMode, setWarRoomMode] = useState(false);
   const [civAge, setCivAge] = useState(12000);
-  const { isLoggedIn } = useContext(AuthContext);
 
   const [deepStateFeatures, setDeepStateFeatures] = useState([]);
+  
+  // [REMOVED - duplicate] Cursor mode state
+  
+  // Avatar Rigging System State
+  const [showAvatarRig, setShowAvatarRig] = useState(false);
+  const [skeletonData, setSkeletonData] = useState({
+    // Basic skeleton structure
+    head: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 1.7, z: 0 } },
+    neck: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 1.6, z: 0 } },
+    spine: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 1.4, z: 0 } },
+    leftShoulder: { rotation: { x: 0, y: 0, z: 0 }, position: { x: -0.3, y: 1.5, z: 0 } },
+    rightShoulder: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0.3, y: 1.5, z: 0 } },
+    leftArm: { rotation: { x: 0, y: 0, z: 0 }, position: { x: -0.5, y: 1.3, z: 0 } },
+    rightArm: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0.5, y: 1.3, z: 0 } },
+    leftHand: { rotation: { x: 0, y: 0, z: 0 }, position: { x: -0.7, y: 1.0, z: 0 } },
+    rightHand: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0.7, y: 1.0, z: 0 } },
+    leftLeg: { rotation: { x: 0, y: 0, z: 0 }, position: { x: -0.2, y: 0.8, z: 0 } },
+    rightLeg: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0.2, y: 0.8, z: 0 } },
+    leftFoot: { rotation: { x: 0, y: 0, z: 0 }, position: { x: -0.2, y: 0.1, z: 0.2 } },
+    rightFoot: { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0.2, y: 0.1, z: 0.2 } }
+  });
+  
+  const [faceDriver, setFaceDriver] = useState({
+    // Facial expression latent space
+    smile: 0,           // -1 (frown) to 1 (smile)
+    surprise: 0,         // 0 to 1 (neutral to surprised)
+    anger: 0,           // 0 to 1 (neutral to angry)
+    sadness: 0,          // 0 to 1 (neutral to sad)
+    fear: 0,            // 0 to 1 (neutral to fearful)
+    disgust: 0,          // 0 to 1 (neutral to disgusted)
+    eyeOpenness: 0.5,    // 0 (closed) to 1 (wide open)
+    eyebrowHeight: 0.5,  // 0 (lowered) to 1 (raised)
+    mouthOpenness: 0.5,  // 0 (closed) to 1 (wide open)
+    jawPosition: 0.5,    // 0 (retracted) to 1 (protruded)
+    cheekPuff: 0,        // 0 to 1 (normal to puffed)
+    lipPucker: 0         // 0 to 1 (normal to puckered)
+  });
+  
+  const [riggingMode, setRiggingMode] = useState('pose'); // 'pose', 'face', 'animation'
+  const [selectedBone, setSelectedBone] = useState(null);
+  const [animationPresets, setAnimationPresets] = useState({
+    idle: { name: 'Idle', description: 'Natural standing pose' },
+    walk: { name: 'Walk', description: 'Walking animation cycle' },
+    run: { name: 'Run', description: 'Running animation cycle' },
+    wave: { name: 'Wave', description: 'Friendly wave gesture' },
+    point: { name: 'Point', description: 'Pointing gesture' },
+    sit: { name: 'Sit', description: 'Sitting pose' },
+    dance: { name: 'Dance', description: 'Dancing animation' }
+  });
   useEffect(() => {
     fetch('https://cdn.jsdelivr.net/npm/deepstate-map-data@latest/data/world.geo.json')
       .then(res => {
@@ -1671,7 +2023,19 @@ export default function ReactGlobeExample() {
   }, []);
 
   return (
-    <div className="relative flex w-screen h-screen text-gray-100 overflow-hidden font-sciFi bg-black">
+    <div 
+      className={`relative flex w-screen h-screen text-gray-100 overflow-hidden font-sciFi bg-black ${
+        isLiquidGlassActive ? 'liquid-glass-effect' : ''
+      } ${cursorMode ? 'cursor-mode-active' : ''}`}
+      style={{
+        // TEMPORARY: Add inline style to test if React styling works
+        ...(isLiquidGlassActive && {
+          background: 'linear-gradient(45deg, red, blue, green)',
+          border: '10px solid purple'
+        })
+      }}
+    >
+      {isLiquidGlassActive && <LiquidGlassShaderBackground />}
       <ParticlesBackground show={showParticles} opacity={particlesOpacity} />
 
       {/* TOP HUD PANEL */}
@@ -1749,17 +2113,17 @@ export default function ReactGlobeExample() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
                   </button>
-                  {(warRoomMode || showFinancial || mode === 'financial') && (
-                    <button
-                      onClick={() => { setMode('home'); setShowFinancial(false); setShowGraph(false); setWarRoomMode(false); }}
-                      className="p-1 text-white hover:text-neon-blue"
-                      aria-label="Home"
-                    >
-                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1V9z" />
-                      </svg>
-                    </button>
-                  )}
+                   {(warRoomMode || showFinancial || mode === 'financial') && (
+                     <button
+                       onClick={() => { setMode('home'); setShowFinancial(false); setShowGraph(false); setWarRoomMode(false); }}
+                       className="p-1 text-white hover:text-neon-blue"
+                       aria-label="Home"
+                     >
+                       <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1V9z" />
+                       </svg>
+                     </button>
+                   )}
                   {mode === 'home' ? (
                     <button
                       onClick={() => setMode('chat')}
@@ -1779,6 +2143,19 @@ export default function ReactGlobeExample() {
                     >
                       <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5v-6h-6v6H4a 1 1 0 01-1-1V9z" />
+                      </svg>
+                    </button>
+                  )}
+                  {/* File Explorer Mode */}
+                  {mode !== 'jsonfs' && (
+                    <button
+                      onClick={() => setMode('jsonfs')}
+                      className="p-1 text-white hover:text-neon-blue"
+                      aria-label="File Explorer"
+                    >
+                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
                       </svg>
                     </button>
                   )}
@@ -1900,9 +2277,9 @@ export default function ReactGlobeExample() {
                   </div>
                   )}
                   {mode === 'ideologram' && (
-                    <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 mb-4">
-                      <h3 className="text-sm font-bold text-neon-blue mb-2">Ideologram Files</h3>
-                      <button className="mb-2 px-2 py-1 bg-gray-700 rounded" onClick={async () => {
+                    <SidebarFilesPanel
+                      user={user}
+                      onRefresh={async () => {
                         try {
                           const token = localStorage.getItem('token');
                           if (token && token !== 'DUMMY_TOKEN') {
@@ -1921,11 +2298,9 @@ export default function ReactGlobeExample() {
                             setFileTree(tree);
                           }
                         } catch {}
-                      }}>Refresh</button>
-                      <div className="text-gray-300" style={{ maxHeight: 160, overflow: 'auto' }}>
-                        {renderFileTreeList()}
-                      </div>
-                    </div>
+                      }}
+                      renderFileTreeList={renderFileTreeList}
+                    />
                   )}
                   {mode === 'ideologram' && (
                     <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 mb-4">
@@ -1967,6 +2342,13 @@ export default function ReactGlobeExample() {
                       </div>
                     </div>
                   )}
+                  {/* JSON File Explorer */}
+                  {mode === 'jsonfs' && (
+                    <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 mb-4">
+                      <h3 className="text-sm font-bold text-neon-blue mb-2">JSON Explorer</h3>
+                      <JSONFileExplorer />
+                    </div>
+                  )}
                   {/* Year slider for globe data */}
                   {activeGlobeDataset === 'population' && populationYears.length > 0 && (
                     <div id="population-controls" className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20">
@@ -1977,7 +2359,7 @@ export default function ReactGlobeExample() {
                           min={Math.min(...populationYears)}
                           max={Math.max(...populationYears)}
                           value={selectedPopulationYear}
-                          onChange={(e) => setSelectedPopulationYear(+e.target.value)}
+                          onChange={(e) => { const v = +e.target.value; setSelectedPopulationYear(v); if (activeGlobeDataset === 'population' && setProviderSelectedYear) { try { setProviderSelectedYear(v); } catch {} } }}
                         />
                         <span className="ml-2 text-neon-blue">{selectedPopulationYear}</span>
                       </div>
@@ -1992,7 +2374,7 @@ export default function ReactGlobeExample() {
                           min={Math.min(...lifeExpYears)}
                           max={Math.max(...lifeExpYears)}
                           value={selectedLifeExpYear}
-                          onChange={(e) => setSelectedLifeExpYear(+e.target.value)}
+                          onChange={(e) => { const v = +e.target.value; setSelectedLifeExpYear(v); if (activeGlobeDataset === 'life-expectancy' && setProviderSelectedYear) { try { setProviderSelectedYear(v); } catch {} } }}
                         />
                         <span className="ml-2 text-neon-blue">{selectedLifeExpYear}</span>
                       </div>
@@ -2007,7 +2389,7 @@ export default function ReactGlobeExample() {
                           min={Math.min(...gdpYears)}
                           max={Math.max(...gdpYears)}
                           value={selectedGdpYear}
-                          onChange={(e) => setSelectedGdpYear(+e.target.value)}
+                          onChange={(e) => { const v = +e.target.value; setSelectedGdpYear(v); if (activeGlobeDataset === 'NY.GDP.PCAP.PP.KD' && setProviderSelectedYear) { try { setProviderSelectedYear(v); } catch {} } }}
                         />
                         <span className="ml-2 text-neon-blue">{selectedGdpYear}</span>
                       </div>
@@ -2182,13 +2564,11 @@ export default function ReactGlobeExample() {
       )}
 
       {/* CENTER CONTAINER */}
-      <div
-        className="absolute top-0 bottom-0 flex items-center justify-center z-20"
-        style={{
-          left: !leftHidden ? `${sidebarWidths.left}vw` : '0',
-          right: !rightHidden ? `${sidebarWidths.right}vw` : '0',
-          transition: 'left 0.3s ease-in-out, right 0.3s ease-in-out'
-        }}
+      <LayoutShell
+        leftHidden={leftHidden}
+        rightHidden={rightHidden}
+        leftWidthVw={sidebarWidths.left}
+        rightWidthVw={sidebarWidths.right}
       >
         {mode === 'chat' && (
           <>
@@ -2199,6 +2579,7 @@ export default function ReactGlobeExample() {
               leftMargin={!leftHidden ? `${sidebarWidths.left}vw` : '0'}
               rightMargin={!rightHidden ? `${sidebarWidths.right}vw` : '0'}
             />
+            <RealtimeCaptionOverlay />
           </>
         )}
         {mode === 'settings' && (
@@ -2226,55 +2607,25 @@ export default function ReactGlobeExample() {
             }}
           >
             {showGlobe && (
-              <Globe
-                key={`globe-${warRoomMode}-${deepStateFeatures.length}-${showGlobeTexture}-${updateFPS}-${activeGlobeDataset}-${selectedPopulationYear || ''}-${selectedLifeExpYear || ''}-${selectedGdpYear || ''}-${isGlobeReset ? 'reset' : 'active'}`}
-                width={800}
-                height={800}
+              <GlobeController
+                countries={countries}
+                warRoomMode={warRoomMode}
+                deepStateFeatures={deepStateFeatures}
                 globeMaterial={computedGlobeMaterial}
-                backgroundColor="rgba(0,0,0,0)"
-                fpsLimit={updateFPS}
-                polygonsData={warRoomMode ? deepStateFeatures : countries.features.filter((feat) => feat.properties.ISO_A2 !== 'AQ')}
-                polygonAltitude={(d) => (d === hoverD ? 0.15 : 0.1)}
-                onContextMenu={(e) => e.preventDefault()}
-                polygonCapColor={(d) => {
-                  if (warRoomMode) return 'rgba(255,255,0,0.2)';
-                  const name = normalizeCountryName(d.properties.ADMIN);
-                  if (activeGlobeDataset === 'life-expectancy' && lifeExpData) {
-                    const rec = lifeExpData.find(item => normalizeCountryName(item.entity) === name && item.year === selectedLifeExpYear);
-                    if (rec) {
-                      const yearData = lifeExpData.filter(item => item.year === selectedLifeExpYear);
-                      const max = Math.max(...yearData.map(item => item.value));
-                      const t = rec.value / max;
-                      return interpolateYlOrRd(t);
-                    }
-                  }
-                  if (activeGlobeDataset === 'population' && populationData) {
-                    const rec = populationData.find(item => normalizeCountryName(item.entity) === name && item.year === selectedPopulationYear);
-                    if (rec) {
-                      const yearData = populationData.filter(item => item.year === selectedPopulationYear);
-                      const max = Math.max(...yearData.map(item => item.value));
-                      const t = rec.value / max;
-                      return interpolateYlOrRd(t);
-                    }
-                  }
-                  if (activeGlobeDataset === 'NY.GDP.PCAP.PP.KD' && gdpData) {
-                    let rec = gdpData.find(item => item.iso === d.properties.ISO_A3 && item.year === selectedGdpYear);
-                    if (!rec) rec = gdpData.find(item => normalizeCountryName(item.entity) === name && item.year === selectedGdpYear);
-                    if (rec) {
-                      const yearData = gdpData.filter(item => item.year === selectedGdpYear);
-                      const max = Math.max(...yearData.map(item => item.value));
-                      const t = rec.value / max;
-                      return interpolateYlOrRd(t);
-                    }
-                  }
-                  return 'rgba(200,200,200,0.01)';
-                }}
-                polygonSideColor={(d) => (d === hoverD ? 'rgba(57,255,20,0.15)' : 'rgba(150,150,150,0.01)')}
-                polygonStrokeColor={(d) => (d === hoverD ? 'rgba(57,255,20,0.6)' : 'rgba(57,255,20,0.3)')}
                 showGraticules={showGraticules}
                 showAtmosphere={showAtmosphere}
                 onGlobeReady={onGlobeReady}
                 showTexture={showGlobeTexture}
+                fpsLimit={updateFPS}
+                activeGlobeDataset={activeGlobeDataset}
+                populationData={populationData}
+                lifeExpData={lifeExpData}
+                gdpData={gdpData}
+                selectedPopulationYear={selectedPopulationYear}
+                selectedLifeExpYear={selectedLifeExpYear}
+                selectedGdpYear={selectedGdpYear}
+                genericSeries={ctxSeries}
+                genericSelectedYear={ctxSelectedYear}
               />
             )}
             {isLoadingGlobeData && (
@@ -2295,39 +2646,39 @@ export default function ReactGlobeExample() {
           </div>
         )}
         {mode === 'ideologram' && (
-          <div className="relative w-full h-full p-4" style={{ overflowY: 'auto' }}>
-            <div className="max-w-4xl mx-auto w-full space-y-6">
-              {/* CSV Upload - Only show when no data exists */}
-              {(!ideoBooks || ideoBooks.length === 0) && (!ideoScores || ideoScores.length === 0) && (
-                <div className="p-4 rounded-lg border border-gray-700 bg-gray-900/40">
-                  <h2 className="text-lg font-semibold mb-2">Upload Goodreads CSV</h2>
-                  <p className="text-sm text-gray-400 mb-2">Upload your exported CSV of "Read" books.</p>
-                  <input type="file" accept=".csv,text/csv" onChange={(e) => {
-                    const f = e.target.files?.[0]; if (!f) return;
-                    setIdeoLoading(true); setIdeoError('');
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      try {
-                        const text = String(reader.result || '');
-                        const parsed = parseGoodreadsCsv(text);
-                        setIdeoBooks(parsed);
-                        // Persist library (server if logged-in, else local)
-                        persistLibrary(parsed);
-                      } catch (err) { setIdeoError('Failed to parse CSV'); }
-                      finally { setIdeoLoading(false); }
-                    };
-                    reader.readAsText(f);
-                  }} />
-                  {ideoLoading && <span className="ml-2 text-xs text-gray-400">Parsing…</span>}
-                  {!!ideoError && <div className="text-xs text-neon-red mt-1">{ideoError}</div>}
-                </div>
-              )}
+          <IdeologramPanel>
+              <LibraryUploadPanel
+                hasAnyData={(!!ideoBooks && ideoBooks.length > 0) || (!!ideoScores && ideoScores.length > 0)}
+                selectedFile={ideoSelectedFile}
+                setSelectedFile={(f) => { setIdeoSelectedFile(f); setIdeoError(''); }}
+                loading={ideoLoading}
+                error={ideoError}
+                onProcessCsv={() => {
+                          if (!ideoSelectedFile) return;
+                          setIdeoLoading(true);
+                          setIdeoError('');
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            try {
+                              const text = String(reader.result || '');
+                              const parsed = parseGoodreadsCsv(text);
+                              setIdeoBooks(parsed);
+                              persistLibrary(parsed);
+                      setIdeoSelectedFile(null);
+                            } catch (err) { 
+                              setIdeoError('Failed to parse CSV'); 
+                            } finally { 
+                              setIdeoLoading(false); 
+                            }
+                          };
+                          reader.readAsText(ideoSelectedFile);
+                        }}
+              />
 
-              {/* ChatGPT History Upload */}
-              <div className="p-4 rounded-lg border border-gray-700 bg-gray-900/40">
-                <h2 className="text-lg font-semibold mb-2">Upload ChatGPT History</h2>
-                <p className="text-sm text-gray-400 mb-2">Upload your ChatGPT conversation history to enhance worldview assessment</p>
-                <input type="file" accept=".json,.txt" onChange={(e) => {
+              <ChatHistoryUploadPanel
+                loading={ideoLoading}
+                error={ideoError}
+                onUpload={(e) => {
                   const f = e.target.files?.[0]; if (!f) return;
                   setIdeoLoading(true); setIdeoError('');
                   const reader = new FileReader();
@@ -2336,7 +2687,6 @@ export default function ReactGlobeExample() {
                       const text = String(reader.result || '');
                       const parsed = parseChatGPTHistory(text);
                       setIdeoChatHistory(parsed);
-                      // Store chat history for worldview assessment
                       if (user) {
                         API.post('/api/ideologram/chat-history', { chatHistory: parsed })
                           .then(() => console.log('Chat history saved to server'))
@@ -2354,72 +2704,12 @@ export default function ReactGlobeExample() {
                     }
                   };
                   reader.readAsText(f);
-                }} />
-                {ideoLoading && <span className="ml-2 text-xs text-gray-400">Processing…</span>}
-                {!!ideoError && <div className="text-xs text-neon-red mt-1">{ideoError}</div>}
-              </div>
+                }}
+              />
 
-              {/* Chat History Display */}
-              {ideoChatHistory.length > 0 && (
-                <div className="p-4 rounded-lg border border-gray-700 bg-gray-900/40">
-                  <h2 className="text-lg font-semibold mb-2">Chat History Analysis</h2>
-                  <p className="text-sm text-gray-400 mb-2">
-                    {ideoChatHistory.length} messages loaded • 
-                    {ideoChatHistory.filter(m => m.role === 'user').length} user messages • 
-                    {ideoChatHistory.filter(m => m.role === 'assistant').length} AI responses
-                  </p>
-                  <div className="max-h-40 overflow-y-auto space-y-2">
-                    {ideoChatHistory.slice(-5).map((msg, idx) => (
-                      <div key={idx} className={`p-2 rounded text-sm ${
-                        msg.role === 'user' ? 'bg-blue-900/30 border-l-2 border-blue-500' : 'bg-gray-800/30 border-l-2 border-gray-500'
-                      }`}>
-                        <div className="text-xs text-gray-400 mb-1">
-                          {msg.role === 'user' ? 'You' : 'AI'} • {new Date(msg.timestamp).toLocaleString()}
-                        </div>
-                        <div className="text-gray-200">
-                          {msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-2 text-xs text-gray-500">
-                    Chat history will be analyzed during worldview assessment to enhance accuracy
-                  </div>
-                </div>
-              )}
+              <ChatHistoryAnalysisPanel messages={ideoChatHistory} />
 
-              {/* Chat Integration for Worldview Assessment */}
-              <div className="p-4 rounded-lg border border-gray-700 bg-gray-900/40">
-                <h2 className="text-lg font-semibold mb-2">💬 Chat Integration</h2>
-                <p className="text-sm text-gray-400 mb-2">
-                  Use the Mini Chat (bottom of left sidebar) to discuss worldview topics and enhance your assessment
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                  <div className="space-y-2">
-                    <h3 className="font-medium text-blue-400">Suggested Chat Topics:</h3>
-                    <ul className="text-gray-300 space-y-1">
-                      <li>• Economic systems and policies</li>
-                      <li>• Philosophical questions and ethics</li>
-                      <li>• Scientific concepts and methods</li>
-                      <li>• Psychological insights and behavior</li>
-                      <li>• Historical events and perspectives</li>
-                    </ul>
-                  </div>
-                  <div className="space-y-2">
-                    <h3 className="font-medium text-green-400">Chat Analysis Benefits:</h3>
-                    <ul className="text-gray-300 space-y-1">
-                      <li>• Enhanced assessment accuracy</li>
-                      <li>• Real-time worldview insights</li>
-                      <li>• Continuous learning tracking</li>
-                      <li>• Personalized recommendations</li>
-                    </ul>
-                  </div>
-                </div>
-                <div className="mt-3 p-2 bg-blue-900/20 border border-blue-500/30 rounded text-xs text-blue-200">
-                  💡 <strong>Tip:</strong> The more you chat about worldview topics, the more accurate your assessment becomes. 
-                  Chat conversations are automatically analyzed and integrated into your worldview profile.
-                </div>
-              </div>
+              <ChatIntegrationInfo />
 
               {/* Avatar and Worldview Assessment Score Display */}
               {user && (
@@ -2585,15 +2875,16 @@ export default function ReactGlobeExample() {
                 <p className="text-sm text-gray-400">Showing books detected as read. Only read and rated books are used by default in the compute.</p>
                 <div className="mt-2 flex gap-4 flex-wrap text-sm">
                   <span>Total loaded: {ideoBooks.length}</span>
-                  <span>Read: {ideoBooks.filter(b => (b.isRead ?? (b.readingStatus === 'read' || !!b.dateRead))).length}</span>
-                  <span>Rated (read): {ideoBooks.filter(b => (b.isRead ?? (b.readingStatus === 'read' || !!b.dateRead)) && b.rating != null).length}</span>
+                  <span className="text-green-400">Read: {ideoBooks.filter(b => b.isRead).length}</span>
+                  <span className="text-blue-400">To-read: {ideoBooks.filter(b => !b.isRead).length}</span>
+                  <span className="text-yellow-400">Rated: {ideoBooks.filter(b => b.isRead && b.rating > 0).length}</span>
                 </div>
                 <div className="mt-2 max-h-64 overflow-auto border border-gray-700 rounded p-2">
-                  {ideoBooks.filter(b => (b.isRead ?? (b.readingStatus === 'read' || !!b.dateRead))).length === 0 ? (
+                  {ideoBooks.filter(b => b.isRead).length === 0 ? (
                     <div className="text-gray-400 text-sm">No read books detected yet. Upload a CSV above.</div>
                   ) : (
                     <ul className="list-none m-0 p-0 text-sm">
-                      {ideoBooks.filter(b => (b.isRead ?? (b.readingStatus === 'read' || !!b.dateRead))).slice(0, 200).map((b, i) => {
+                      {ideoBooks.filter(b => b.isRead).slice(0, 200).map((b, i) => {
                         const key = `${b.title}::${b.author || ''}`;
                         const info = ideoEnrichedMap[key];
                         const isEnriching = !!ideoEnriching[key];
@@ -2661,7 +2952,7 @@ export default function ReactGlobeExample() {
                 </div>
                 <div className="mt-2 flex gap-2 items-center">
                   <button className="px-3 py-1 bg-gray-700 rounded disabled:opacity-50" disabled={ideoLoading} onClick={async () => {
-                    const read = ideoBooks.filter(b => (b.isRead ?? (b.readingStatus === 'read' || !!b.dateRead))).slice(0,20);
+                    const read = ideoBooks.filter(b => b.isRead).slice(0,20);
                     setIdeoLoading(true); setIdeoError('');
                     try {
                       const items = [];
@@ -2718,7 +3009,7 @@ export default function ReactGlobeExample() {
                   </div>
                   
                   <button className="px-3 py-1 bg-gray-700 rounded disabled:opacity-50" disabled={ideoLoading} onClick={async () => {
-                    const read = ideoBooks.filter(b => (b.isRead ?? (b.readingStatus === 'read' || !!b.dateRead))).slice(0,20);
+                    const read = ideoBooks.filter(b => b.isRead).slice(0,20);
                     setIdeoLoading(true); setIdeoError('');
                     try {
                       const items = [];
@@ -2903,6 +3194,23 @@ export default function ReactGlobeExample() {
               </div>
 
               {/* EPUB/Text Analyze */}
+              <TextCompressionPanel
+                ideoFreeText={ideoFreeText}
+                setIdeoFreeText={setIdeoFreeText}
+                epubMeta={epubMeta}
+                setEpubMeta={setEpubMeta}
+                setEpubName={setEpubName}
+                analyzeTextLexical={analyzeTextLexical}
+                setIdeoTextResult={setIdeoTextResult}
+                ideoCompressing={ideoCompressing}
+                setIdeoCompressing={setIdeoCompressing}
+                ideoCompressionStatus={ideoCompressionStatus}
+                setIdeoCompressionStatus={setIdeoCompressionStatus}
+                setIdeoCompressionResult={setIdeoCompressionResult}
+                setIdeoError={setIdeoError}
+                setFileTree={setFileTree}
+              />
+              {false && (
               <div className="p-4 rounded-lg border border-gray-700 bg-gray-900/40">
                 <h2 className="text-lg font-semibold mb-2">Analyze text or EPUB</h2>
                 <input type="file" accept=".txt,text/plain" className="mb-2" onChange={(e) => {
@@ -2964,6 +3272,441 @@ export default function ReactGlobeExample() {
                 <textarea className="w-full min-h-[120px] p-2 bg-gray-800 text-white rounded" placeholder="Paste text here" value={ideoFreeText} onChange={(e) => setIdeoFreeText(e.target.value)} />
                 <div className="mt-2 flex gap-2">
                   <button className="px-3 py-1 bg-neon-blue text-black rounded" onClick={() => setIdeoTextResult(analyzeTextLexical(ideoFreeText))} disabled={!ideoFreeText.trim()}>Analyze text</button>
+                  
+                  {/* Book Compression Buttons */}
+                  <div className="flex flex-wrap gap-2">
+                    {/* Full Auto Compression */}
+                    <button 
+                      className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors" 
+                      onClick={async () => {
+                        if (!ideoFreeText.trim()) return;
+                        
+                        const bookId = (epubMeta?.isbn && epubMeta.isbn.trim()) || 
+                                     `${(epubMeta?.title || 'Untitled').trim()}|${(epubMeta?.author || '').trim()}`;
+                        
+                        try {
+                          setIdeoCompressing(true);
+                          setIdeoError(null);
+                          setIdeoCompressionStatus(prev => ({ 
+                            ...prev, 
+                            step: 'extracting', 
+                            currentStep: 'Running full compression pipeline...', 
+                            progress: 0,
+                            debugMode: false 
+                          }));
+                          
+                          // Add timeout for the request
+                          const controller = new AbortController();
+                          const timeoutId = setTimeout(() => controller.abort(), 35 * 60 * 1000);
+                          
+                          const response = await API.post('/api/ideologram/compress', {
+                            text: ideoFreeText,
+                            bookId,
+                            title: epubMeta?.title || 'Untitled',
+                            author: epubMeta?.author || 'Unknown',
+                            docType: 'nonfiction'
+                          }, { signal: controller.signal });
+                          
+                          clearTimeout(timeoutId);
+                          
+                          if (response.data.ok) {
+                            setIdeoCompressionResult(response.data.summary);
+                            
+                            // Update compression status
+                            const summary = response.data.summary;
+                            setIdeoCompressionStatus(prev => ({
+                              ...prev,
+                              step: 'complete',
+                              sentences: summary.stats?.sentences || 0,
+                              statements: summary.stats?.statements || 0,
+                              discarded: (summary.stats?.sentences || 0) - (summary.stats?.statements || 0),
+                              clusters: summary.stats?.clusters || 0,
+                              theses: summary.stats?.theses || 0,
+                              coverage: summary.summary?.coverage_fraction || 0,
+                              mdlReduction: summary.summary?.mdl_reduction_bits || 0,
+                              currentStep: 'Full compression complete',
+                              progress: 100,
+                              canRunNext: false,
+                              nextStep: ''
+                            }));
+                            
+                            // Refresh file tree
+                            if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+                              const res = await API.get('/api/ideologram/fs');
+                              setFileTree(res.data || null);
+                            }
+                          }
+                        } catch (error) {
+                          console.error('Compression failed:', error);
+                          if (error.name === 'AbortError') {
+                            setIdeoError('Compression timeout: process took too long');
+                          } else {
+                            setIdeoError(`Compression failed: ${error.message}`);
+                          }
+                          setIdeoCompressionStatus(prev => ({ ...prev, step: 'idle', currentStep: '', progress: 0 }));
+                        } finally {
+                          setIdeoCompressing(false);
+                        }
+                      }}
+                      disabled={!ideoFreeText.trim() || ideoCompressing}
+                    >
+                      {ideoCompressing ? 'Compressing...' : '🚀 Full Compress & Analyze'}
+                    </button>
+                    
+                    {/* Debug Mode Button */}
+                    <button 
+                      className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors" 
+                      onClick={() => {
+                        setIdeoCompressionStatus(prev => ({ 
+                          ...prev, 
+                          debugMode: !prev.debugMode,
+                          step: 'idle',
+                          currentStep: '',
+                          progress: 0,
+                          currentStepIndex: 0,
+                          pipelineSteps: prev.pipelineSteps.map(step => ({ ...step, status: 'pending' }))
+                        }));
+                      }}
+                      disabled={ideoCompressing}
+                    >
+                      {ideoCompressionStatus.debugMode ? '🔴 Exit Debug Mode' : '🐛 Debug Mode'}
+                    </button>
+                  </div>
+                  
+                  {/* Step-by-Step Pipeline (Debug Mode) */}
+                  {ideoCompressionStatus.debugMode && (
+                    <div className="w-full mt-4 p-4 bg-gray-800 rounded border border-blue-600">
+                      <h3 className="text-blue-400 font-semibold mb-3">🔧 Step-by-Step Pipeline (Debug Mode)</h3>
+                      
+                      {/* Pipeline Steps */}
+                      <div className="space-y-3 mb-4">
+                        {ideoCompressionStatus.pipelineSteps.map((step, index) => (
+                          <div key={step.id} className={`p-3 rounded border ${
+                            step.status === 'completed' ? 'border-green-500 bg-green-900/20' :
+                            step.status === 'running' ? 'border-blue-500 bg-blue-900/20' :
+                            step.status === 'error' ? 'border-red-500 bg-red-900/20' :
+                            'border-gray-600 bg-gray-700/20'
+                          }`}>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="font-medium text-white">
+                                  {index + 1}. {step.name}
+                                </div>
+                                <div className="text-sm text-gray-300">{step.description}</div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  step.status === 'completed' ? 'bg-green-600 text-white' :
+                                  step.status === 'running' ? 'bg-blue-600 text-white' :
+                                  step.status === 'error' ? 'bg-red-600 text-white' :
+                                  'bg-gray-600 text-white'
+                                }`}>
+                                  {step.status === 'completed' ? '✅' :
+                                   step.status === 'running' ? '🔄' :
+                                   step.status === 'error' ? '❌' :
+                                   '⏳'} {step.status}
+                                </span>
+                                
+                                {step.status === 'pending' && index === ideoCompressionStatus.currentStepIndex && (
+                                  <button 
+                                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs"
+                                    onClick={async () => {
+                                      if (!ideoFreeText.trim()) return;
+                                      
+                                      const bookId = (epubMeta?.isbn && epubMeta.isbn.trim()) || 
+                                                   `${(epubMeta?.title || 'Untitled').trim()}|${(epubMeta?.author || '').trim()}`;
+                                      
+                                        setIdeoCompressionStatus(prev => ({
+                                          ...prev,
+                                          currentStepIndex: index,
+                                          currentStep: `Running ${step.name}...`,
+                                          progress: (index / prev.pipelineSteps.length) * 100
+                                        }));
+                                        
+                                        // Update step status to running
+                                        const updatedSteps = [...prev.pipelineSteps];
+                                        updatedSteps[index].status = 'running';
+                                        setIdeoCompressionStatus(prev => ({
+                                          ...prev,
+                                          pipelineSteps: updatedSteps
+                                        }));
+                                        
+                                        // Run the specific step with timeout
+                                        const controller = new AbortController();
+                                        const timeoutId = setTimeout(() => controller.abort(), 6 * 60 * 1000); // 6 minutes
+                                        
+                                        try {
+                                          const response = await API.post('/api/ideologram/compress/step', {
+                                            step: step.id,
+                                            text: ideoFreeText,
+                                            bookId: `${bookId}_debug`,
+                                            title: epubMeta?.title || 'Untitled',
+                                            author: epubMeta?.author || 'Unknown',
+                                            docType: 'nonfiction'
+                                          }, { signal: controller.signal });
+                                          
+                                          clearTimeout(timeoutId);
+                                          
+                                          if (response.data.ok) {
+                                            // Update step status to completed
+                                            const updatedSteps = [...ideoCompressionStatus.pipelineSteps];
+                                            updatedSteps[index].status = 'completed';
+                                            
+                                            // Update compression status with step results
+                                            setIdeoCompressionStatus(prev => ({
+                                              ...prev,
+                                              pipelineSteps: updatedSteps,
+                                              currentStep: `${step.name} completed`,
+                                              progress: ((index + 1) / prev.pipelineSteps.length) * 100,
+                                              stepResults: {
+                                                ...prev.stepResults,
+                                                [step.id]: response.data
+                                              },
+                                              canRunNext: index < prev.pipelineSteps.length - 1
+                                            }));
+                                            
+                                            // Update specific metrics based on step
+                                            if (step.id === 'extract') {
+                                              setIdeoCompressionStatus(prev => ({
+                                                ...prev,
+                                                sentences: response.data.sentences || 0,
+                                                statements: response.data.statements || 0,
+                                                discarded: (response.data.sentences || 0) - (response.data.statements || 0)
+                                              }));
+                                            } else if (step.id === 'cluster') {
+                                              setIdeoCompressionStatus(prev => ({
+                                                ...prev,
+                                                clusters: response.data.clusters || 0
+                                              }));
+                                            } else if (step.id === 'synthesize') {
+                                              setIdeoCompressionStatus(prev => ({
+                                                ...prev,
+                                                theses: response.data.theses || 0,
+                                                coverage: response.data.coverage || 0,
+                                                mdlReduction: response.data.mdl_reduction || 0
+                                              }));
+                                            }
+                                            
+                                            // Refresh file tree if final step
+                                            if (index === ideoCompressionStatus.pipelineSteps.length - 1) {
+                                              if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+                                                const res = await API.get('/api/ideologram/fs');
+                                                setFileTree(res.data || null);
+                                              }
+                                            }
+                                          }
+                                        } catch (error) {
+                                          clearTimeout(timeoutId);
+                                          console.error(`Step ${step.name} failed:`, error);
+                                          
+                                          // Update step status to error
+                                          const updatedSteps = [...ideoCompressionStatus.pipelineSteps];
+                                          updatedSteps[index].status = 'error';
+                                          
+                                          setIdeoCompressionStatus(prev => ({
+                                            ...prev,
+                                            pipelineSteps: updatedSteps,
+                                            currentStep: `${step.name} failed`,
+                                            errors: [...prev.errors, { step: step.name, error: error.message }]
+                                          }));
+                                        }
+                                    }}
+                                    disabled={ideoCompressing}
+                                  >
+                                    ▶️ Run Step
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {/* Pipeline Controls */}
+                      <div className="flex gap-2">
+                        <button 
+                          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-xs"
+                          onClick={() => {
+                            setIdeoCompressionStatus(prev => ({
+                              ...prev,
+                              pipelineSteps: prev.pipelineSteps.map(step => ({ ...step, status: 'pending' })),
+                              currentStepIndex: 0,
+                              currentStep: '',
+                              progress: 0,
+                              errors: []
+                            }));
+                          }}
+                        >
+                          🔄 Reset Pipeline
+                        </button>
+                        
+                        <button 
+                          className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors text-xs"
+                          onClick={async () => {
+                            if (!ideoFreeText.trim()) return;
+                            
+                            const bookId = (epubMeta?.isbn && epubMeta.isbn.trim()) || 
+                                         `${(epubMeta?.title || 'Untitled').trim()}|${(epubMeta?.author || '').trim()}`;
+                            
+                            try {
+                              setIdeoCompressing(true);
+                              setIdeoCompressionStatus(prev => ({
+                                ...prev,
+                                currentStep: 'Running debug pipeline...',
+                                progress: 0
+                              }));
+                              
+                              // Run all steps sequentially
+                              for (let i = 0; i < ideoCompressionStatus.pipelineSteps.length; i++) {
+                                const step = ideoCompressionStatus.pipelineSteps[i];
+                                
+                                setIdeoCompressionStatus(prev => ({
+                                  ...prev,
+                                  currentStepIndex: i,
+                                  currentStep: `Running ${step.name}...`,
+                                  progress: (i / prev.pipelineSteps.length) * 100
+                                }));
+                                
+                                // Update step status to running
+                                const updatedSteps = [...ideoCompressionStatus.pipelineSteps];
+                                updatedSteps[i].status = 'running';
+                                setIdeoCompressionStatus(prev => ({
+                                  ...prev,
+                                  pipelineSteps: updatedSteps
+                                }));
+                                
+                                // Run the step
+                                const response = await API.post('/api/ideologram/compress/step', {
+                                  step: step.id,
+                                  text: ideoFreeText,
+                                  bookId: `${bookId}_debug`,
+                                  title: epubMeta?.title || 'Untitled',
+                                  author: epubMeta?.author || 'Unknown',
+                                  docType: 'nonfiction'
+                                });
+                                
+                                if (response.data.ok) {
+                                  // Update step status to completed
+                                  const updatedSteps = [...ideoCompressionStatus.pipelineSteps];
+                                  updatedSteps[i].status = 'completed';
+                                  
+                                  setIdeoCompressionStatus(prev => ({
+                                    ...prev,
+                                    pipelineSteps: updatedSteps,
+                                    stepResults: {
+                                      ...prev.stepResults,
+                                      [step.id]: response.data
+                                    }
+                                  }));
+                                  
+                                  // Update metrics
+                                  if (step.id === 'extract') {
+                                    setIdeoCompressionStatus(prev => ({
+                                      ...prev,
+                                      sentences: response.data.sentences || 0,
+                                      statements: response.data.statements || 0,
+                                      discarded: (response.data.sentences || 0) - (response.data.statements || 0)
+                                    }));
+                                  } else if (step.id === 'cluster') {
+                                    setIdeoCompressionStatus(prev => ({
+                                      ...prev,
+                                      clusters: response.data.clusters || 0
+                                    }));
+                                  } else if (step.id === 'synthesize') {
+                                    setIdeoCompressionStatus(prev => ({
+                                      ...prev,
+                                      theses: response.data.theses || 0,
+                                      coverage: response.data.coverage || 0,
+                                      mdlReduction: response.data.mdl_reduction || 0
+                                    }));
+                                  }
+                                } else {
+                                  throw new Error(`Step ${step.name} failed`);
+                                }
+                              }
+                              
+                              // Finalize
+                              setIdeoCompressionStatus(prev => ({
+                                ...prev,
+                                currentStep: 'Debug pipeline complete',
+                                progress: 100,
+                                canRunNext: false
+                              }));
+                              
+                              // Refresh file tree
+                              if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+                                const res = await API.get('/api/ideologram/fs');
+                                setFileTree(res.data || null);
+                              }
+                              
+                            } catch (error) {
+                              console.error('Debug pipeline failed:', error);
+                              setIdeoError(`Debug pipeline failed: ${error.message}`);
+                            } finally {
+                              setIdeoCompressing(false);
+                            }
+                          }}
+                          disabled={ideoCompressing}
+                        >
+                          🚀 Run All Steps
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* 1000 Sentence Test Button */}
+                  <button 
+                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors ml-2" 
+                    onClick={async () => {
+                      if (!ideoFreeText.trim()) return;
+                      
+                      const bookId = (epubMeta?.isbn && epubMeta.isbn.trim()) || 
+                                   `${(epubMeta?.title || 'Untitled').trim()}|${(epubMeta?.author || '').trim()}`;
+                      
+                      try {
+                        setIdeoCompressing(true);
+                        setIdeoError(null);
+                        
+                        // Add timeout for the test request (shorter since it's only 1000 sentences)
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+                        
+                        const response = await API.post('/api/ideologram/compress', {
+                          text: ideoFreeText,
+                          bookId: `${bookId}_test_1000`,
+                          title: `${epubMeta?.title || 'Untitled'} (1000 Sentence Test)`,
+                          author: epubMeta?.author || 'Unknown',
+                          docType: 'nonfiction',
+                          testMode: true,
+                          maxSentences: 1000
+                        }, { signal: controller.signal });
+                        
+                        clearTimeout(timeoutId);
+                        
+                        if (response.data.ok) {
+                          setIdeoCompressionResult(response.data.summary);
+                          // Refresh file tree to show new compressed data
+                          if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+                            const res = await API.get('/api/ideologram/fs');
+                            setFileTree(res.data || null);
+                          }
+                        }
+                      } catch (error) {
+                        console.error('Test compression failed:', error);
+                        if (error.name === 'AbortError') {
+                          setIdeoError('Test compression timeout: process took too long');
+                        } else {
+                          setIdeoCompressionResult(`Test compression failed: ${error.message}`);
+                        }
+                      } finally {
+                        setIdeoCompressing(false);
+                      }
+                    }}
+                    disabled={!ideoFreeText.trim() || ideoCompressing}
+                  >
+                    🧪 1000 Sentence Test
+                  </button>
+                  
                   {ideoTextResult && (
                     <button className="px-3 py-1 bg-gray-700 rounded" onClick={async () => {
                       const entry = {
@@ -2986,24 +3729,30 @@ export default function ReactGlobeExample() {
                 {ideoTextResult && (
                   <div className="mt-2 border border-gray-700 rounded p-2 text-sm">
                     <div className="flex gap-3 flex-wrap mb-2">
-                      <span>Politicalness: {(ideoTextResult.metrics.politicalness*100|0)}%</span>
-                      <span>Ideologicalness: {(ideoTextResult.metrics.ideologicalness*100|0)}%</span>
-                      <span>Educatedness: {(ideoTextResult.metrics.educatedness*100|0)}%</span>
-                      <span>Religiousness: {(ideoTextResult.metrics.religiousness*100|0)}%</span>
-                      <span>Romanticalness: {(ideoTextResult.metrics.romanticalness*100|0)}%</span>
-                      <span>Sentiment: {(ideoTextResult.metrics.positivity*100|0)}%</span>
+                      <span>Politicalness: {((ideoTextResult.metrics?.politicalness || 0)*100|0)}%</span>
+                      <span>Ideologicalness: {((ideoTextResult.metrics?.ideologicalness || 0)*100|0)}%</span>
+                      <span>Educatedness: {((ideoTextResult.metrics?.educatedness || 0)*100|0)}%</span>
+                      <span>Religiousness: {((ideoTextResult.metrics?.religiousness || 0)*100|0)}%</span>
+                      <span>Romanticalness: {((ideoTextResult.metrics?.romanticalness || 0)*100|0)}%</span>
+                      <span>Sentiment: {((ideoTextResult.metrics?.positivity || 0)*100|0)}%</span>
                     </div>
                     <div className="text-xs text-gray-300">
-                      econ_lr: {(ideoTextResult.axes.econ_lr*100|0)}% · cult_libcon: {(ideoTextResult.axes.cult_libcon*100|0)}% · auth_lib: {(ideoTextResult.axes.auth_lib*100|0)}% · global_local: {(ideoTextResult.axes.global_local*100|0)}% · tech_prog: {(ideoTextResult.axes.tech_prog*100|0)}% · epistemic_rat: {(ideoTextResult.axes.epistemic_rat*100|0)}%
+                      econ_lr: {((ideoTextResult.axes?.econ_lr || 0)*100|0)}% · cult_libcon: {((ideoTextResult.axes?.cult_libcon || 0)*100|0)}% · auth_lib: {((ideoTextResult.axes?.auth_lib || 0)*100|0)}% · global_local: {((ideoTextResult.axes?.global_local || 0)*100|0)}% · tech_prog: {((ideoTextResult.axes?.tech_prog || 0)*100|0)}% · epistemic_rat: {((ideoTextResult.axes?.epistemic_rat || 0)*100|0)}%
                     </div>
                   </div>
                 )}
-              </div>
 
-              {/* Widget */}
-              <div className="p-4 rounded-lg border border-gray-700 bg-gray-900/40">
-                <h2 className="text-lg font-semibold mb-2">Widget</h2>
-                <p className="text-sm text-gray-400 mb-2">Loaded books: {ideoBooks.length}</p>
+                <CompressionResultsPanel result={ideoCompressionResult} />
+
+                <CompressionStatusPanel error={ideoError} compressing={ideoCompressing} status={ideoCompressionStatus} />
+                  </div>
+                )}
+
+              <ToReadList books={ideoBooks} />
+
+              <WidgetCard
+                books={ideoBooks}
+                widget={
                 <IdeologramWidget
                   mode="both"
                   books={ideoBooks}
@@ -3027,8 +3776,8 @@ export default function ReactGlobeExample() {
                     } catch {}
                   }}
                 />
-                <div className="mt-2">
-                  <button className="px-3 py-1 bg-gray-700 rounded" onClick={async () => {
+                }
+                onCompute={async () => {
                     const r = computeIdeologram({ books: ideoBooks, anchors: SAMPLE_ANCHORS, quizResponses: ideoQuiz });
                     const axes = (r?.dimensions || []).reduce((acc, d) => { acc[d.key] = d.value; return acc; }, {});
                     const entry = {
@@ -3042,308 +3791,41 @@ export default function ReactGlobeExample() {
                     };
                     await persistScore(entry);
                     setIdeoScores(prev => [entry, ...prev]);
-                  }}>Compute (headless)</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+                }}
+              />
+          </IdeologramPanel>
+          )}
+      </LayoutShell>
       
 
-      {/* Tooltip */}
-      {hoverD && (
-        <div
-          style={{
-            position: 'fixed',
-            left: `${tooltipPosition.x + 20}px`,
-            top: `${tooltipPosition.y - 20}px`,
-            background: 'rgba(0,0,0,0.8)',
-            color: 'white',
-            padding: '12px 16px',
-            borderRadius: '8px',
-            zIndex: 9999,
-            borderLeft: '3px solid rgba(57,255,20,0.8)',
-            backdropFilter: 'blur(4px)',
-            pointerEvents: 'none',
-            minWidth: '200px'
-          }}
-        >
-          <div className="font-bold text-lg">{hoverD.properties.ADMIN}</div>
-          {activeGlobeDataset === 'life-expectancy' && (
-            <div className="text-sm text-gray-300">
-              Life Expectancy:{' '}
-              {lifeExpData
-                .find(
-                  (item) =>
-                    item.entity.toLowerCase() ===
-                    normalizeCountryName(hoverD.properties.ADMIN.toLowerCase())
-                )
-                ?.value?.toFixed(1) || 'N/A'}{' '}
-              years
-            </div>
-          )}
-          {activeGlobeDataset === 'population' && (
-            <div className="text-sm text-gray-300">
-              Population:{' '}
-              {new Intl.NumberFormat().format(
-                populationData?.find(
-                  (item) =>
-                    item.entity.toLowerCase() ===
-                      normalizeCountryName(hoverD.properties.ADMIN.toLowerCase()) &&
-                    item.year === selectedPopulationYear
-                )?.value || 'N/A'
-              )}
-            </div>
-          )}
-          {activeGlobeDataset === 'NY.GDP.PCAP.PP.KD' && (
-            <div className="text-sm text-gray-300">
-              GDP per Capita:{' '}
-              {(() => {
-                let rec = gdpData?.find(
-                  item => item.iso === hoverD.properties.ISO_A3 && item.year === selectedGdpYear
-                );
-                if (!rec) {
-                  // fallback by normalized name
-                  rec = gdpData?.find(
-                    item => normalizeCountryName(item.entity) === normalizeCountryName(hoverD.properties.ADMIN) && item.year === selectedGdpYear
-                  );
-                }
-                const val = rec?.value;
-                return val != null
-                  ? new Intl.NumberFormat().format(val)
-                  : 'N/A';
-              })()}
-            </div>
-          )}
-          <div className="text-xs text-gray-400 mt-1">
-            Region: {hoverD.properties.REGION_WB || hoverD.properties.CONTINENT || 'N/A'}
-          </div>
-        </div>
+      {/* Tooltip moved to TooltipLayer (event-driven) */}
+      <TooltipLayer />
+
+      {!showGraph && activeGlobeDataset === 'life-expectancy' && (
+        <DatasetControlPanel
+          activeGlobeDataset={activeGlobeDataset}
+          availableRegions={availableRegions}
+          selectedRegion={selectedRegion}
+          onChangeRegion={setSelectedRegion}
+        />
       )}
 
-      {/* Life Expectancy Controls */}
-      {!showGraph && activeGlobeDataset === 'life-expectancy' && lifeExpYears.length > 0 && (
-        <div
-          id="life-expectancy-controls"
-          className="fixed bottom-[25vh] left-1/2 transform -translate-x-1/2 z-50
-            bg-gray-900/80 backdrop-blur-md p-3 rounded-lg border border-neon-blue/30"
-          style={{ width: '350px' }}
-          onMouseDown={(e) => {
-            if (e.button !== 0) return;
-            const el = e.currentTarget;
-            const rect = el.getBoundingClientRect();
-            const offsetX = e.clientX - rect.left;
-            const offsetY = e.clientY - rect.top;
-
-            const onMouseMove = (moveEvent) => {
-              const x = moveEvent.clientX - offsetX;
-              const y = moveEvent.clientY - offsetY;
-              el.style.position = 'fixed';
-              el.style.top = `${y}px`;
-              el.style.left = `${x}px`;
-              el.style.bottom = 'auto';
-              el.style.transform = 'none';
-            };
-            const onMouseUp = () => {
-              document.removeEventListener('mousemove', onMouseMove);
-              document.removeEventListener('mouseup', onMouseUp);
-            };
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-          }}
-        >
-          <button
-            className="absolute top-1 right-1 text-neon-blue/50 hover:text-neon-blue"
-            onClick={() => {
-              const panel = document.querySelector('#life-expectancy-controls');
-              if (panel) panel.style.display = 'none';
-            }}
-          >
-            ✕
-          </button>
-          <div className="mb-2">
-            <label className="text-neon-blue text-xs block mb-1">Region/Country:</label>
-            <select
-              value={selectedRegion}
-              onChange={(e) => setSelectedRegion(e.target.value)}
-              className="w-full p-1 bg-gray-800 text-neon-blue border border-neon-blue/20 rounded text-xs"
-            >
-              {availableRegions.map((region) => (
-                <option key={region} value={region}>
-                  {region}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex justify-between mb-1">
-            <span className="text-neon-blue text-xs">
-              Year: {selectedLifeExpYear}
-            </span>
-            <span className="text-neon-blue text-xs">Life Expectancy</span>
-          </div>
-          <input
-            type="range"
-            min={Math.min(...lifeExpYears)}
-            max={Math.max(...lifeExpYears)}
-            value={selectedLifeExpYear}
-            onChange={(e) => setSelectedLifeExpYear(+e.target.value)}
-            step="1"
-            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-          />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
-            <span>{Math.min(...lifeExpYears)}</span>
-            <span>{Math.max(...lifeExpYears)}</span>
-          </div>
-        </div>
+      {!showGraph && activeGlobeDataset === 'population' && (
+        <DatasetControlPanel
+          activeGlobeDataset={activeGlobeDataset}
+          availableRegions={availableRegions}
+          selectedRegion={selectedRegion}
+          onChangeRegion={setSelectedRegion}
+        />
       )}
 
-      {/* Population Controls */}
-      {!showGraph && activeGlobeDataset === 'population' && populationYears.length > 0 && (
-        <div
-          id="population-controls"
-          className="fixed bottom-[25vh] left-1/2 transform -translate-x-1/2 z-50
-            bg-gray-900/80 backdrop-blur-md p-3 rounded-lg border border-neon-blue/30"
-          style={{ width: '350px' }}
-          onMouseDown={(e) => {
-            if (e.button !== 0) return;
-            const el = e.currentTarget;
-            const rect = el.getBoundingClientRect();
-            const offsetX = e.clientX - rect.left;
-            const offsetY = e.clientY - rect.top;
-
-            const onMouseMove = (moveEvent) => {
-              const x = moveEvent.clientX - offsetX;
-              const y = moveEvent.clientY - offsetY;
-              el.style.position = 'fixed';
-              el.style.top = `${y}px`;
-              el.style.left = `${x}px`;
-              el.style.bottom = 'auto';
-              el.style.transform = 'none';
-            };
-            const onMouseUp = () => {
-              document.removeEventListener('mousemove', onMouseMove);
-              document.removeEventListener('mouseup', onMouseUp);
-            };
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-          }}
-        >
-          <button
-            className="absolute top-1 right-1 text-neon-blue/50 hover:text-neon-blue"
-            onClick={() => {
-              const panel = document.querySelector('#population-controls');
-              if (panel) panel.style.display = 'none';
-            }}
-          >
-            ✕
-          </button>
-          <div className="mb-2">
-            <label className="text-neon-blue text-xs block mb-1">Region/Country:</label>
-            <select
-              value={selectedRegion}
-              onChange={(e) => setSelectedRegion(e.target.value)}
-              className="w-full p-1 bg-gray-800 text-neon-blue border border-neon-blue/20 rounded text-xs"
-            >
-              {availableRegions.map((region) => (
-                <option key={region} value={region}>
-                  {region}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex justify-between mb-1">
-            <span className="text-neon-blue text-xs">Year: {selectedPopulationYear}</span>
-            <span className="text-neon-blue text-xs">Population</span>
-          </div>
-          <input
-            type="range"
-            min={Math.min(...populationYears)}
-            max={Math.max(...populationYears)}
-            value={selectedPopulationYear}
-            onChange={(e) => setSelectedPopulationYear(+e.target.value)}
-            step="1"
-            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-          />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
-            <span>{Math.min(...populationYears)}</span>
-            <span>{Math.max(...populationYears)}</span>
-          </div>
-        </div>
-      )}
-
-      {/* GDP per Capita Controls */}
-      {!showGraph && activeGlobeDataset === 'NY.GDP.PCAP.PP.KD' && gdpYears.length > 0 && (
-        <div
-          id="gdp-controls"
-          className="fixed bottom-[25vh] left-1/2 transform -translate-x-1/2 z-50
-            bg-gray-900/80 backdrop-blur-md p-3 rounded-lg border border-neon-blue/30"
-          style={{ width: '350px' }}
-          onMouseDown={(e) => {
-            if (e.button !== 0) return;
-            const el = e.currentTarget;
-            const rect = el.getBoundingClientRect();
-            const offsetX = e.clientX - rect.left;
-            const offsetY = e.clientY - rect.top;
-
-            const onMouseMove = (moveEvent) => {
-              const x = moveEvent.clientX - offsetX;
-              const y = moveEvent.clientY - offsetY;
-              el.style.position = 'fixed';
-              el.style.top = `${y}px`;
-              el.style.left = `${x}px`;
-              el.style.bottom = 'auto';
-              el.style.transform = 'none';
-            };
-            const onMouseUp = () => {
-              document.removeEventListener('mousemove', onMouseMove);
-              document.removeEventListener('mouseup', onMouseUp);
-            };
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-          }}
-        >
-          <button
-            className="absolute top-1 right-1 text-neon-blue/50 hover:text-neon-blue"
-            onClick={() => {
-              const panel = document.querySelector('#gdp-controls');
-              if (panel) panel.style.display = 'none';
-            }}
-          >
-            ✕
-          </button>
-          <div className="mb-2">
-            <label className="text-neon-blue text-xs block mb-1">Region/Country:</label>
-            <select
-              value={selectedRegion}
-              onChange={(e) => setSelectedRegion(e.target.value)}
-              className="w-full p-1 bg-gray-800 text-neon-blue border border-neon-blue/20 rounded text-xs"
-            >
-              {availableRegions.map((region) => (
-                <option key={region} value={region}>
-                  {region}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex justify-between mb-1">
-            <span className="text-neon-blue text-xs">Year: {selectedGdpYear}</span>
-            <span className="text-neon-blue text-xs">GDP per Capita</span>
-          </div>
-          <input
-            type="range"
-            min={Math.min(...gdpYears)}
-            max={Math.max(...gdpYears)}
-            value={selectedGdpYear}
-            onChange={(e) => setSelectedGdpYear(+e.target.value)}
-            step="1"
-            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-          />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
-            <span>{Math.min(...gdpYears)}</span>
-            <span>{Math.max(...gdpYears)}</span>
-          </div>
-        </div>
+      {!showGraph && activeGlobeDataset === 'NY.GDP.PCAP.PP.KD' && (
+        <DatasetControlPanel
+          activeGlobeDataset={activeGlobeDataset}
+          availableRegions={availableRegions}
+          selectedRegion={selectedRegion}
+          onChangeRegion={setSelectedRegion}
+        />
       )}
 
       {/* Globe Reset Button */}
@@ -3374,63 +3856,25 @@ export default function ReactGlobeExample() {
         </div>
       )}
 
-      {/* BOTTOM HUD */}
       {mode !== 'chat' && mode !== 'settings' && mode !== 'ideologram' && !showFinancial && (
-        <div
-          style={{
-            height: `${Math.min(dimensions.bottom, 15)}vh`,
-            minHeight: '30px',
-            left: !leftHidden ? `${sidebarWidths.left}vw` : '0',
-            right: !rightHidden ? `${sidebarWidths.right}vw` : '0',
-            margin: '0 5px',
-            bottom: '5px'
-          }}
-          className={`fixed z-20 ${
-            glowEnabled
-              ? 'bg-gray-800/30 border-t border-neon-red/50'
-              : 'bg-gray-900/50 border-t border-gray-600'
-          } flex items-center justify-between px-4 backdrop-blur-lg rounded-lg transition-all duration-300`}
-        >
-          <div className="text-xs sm:text-sm md:text-xl flex flex-wrap gap-1 sm:gap-2 md:gap-8 p-1 sm:p-2">
-            <span className="text-orange-900">⚠️ CRITICAL:</span>
-            <span className="text-red-900">THERMAL</span>
-            <span className="text-red-900">BIOSPHERE</span>
-            <span className="text-red-900">RESOURCES</span>
-          </div>
-          <div className="flex space-x-4 ml-4">
-            <button onClick={() => setMode('settings')} className="px-2 py-1 bg-gray-800 text-white rounded hover:bg-gray-700">
-              Settings
-            </button>
-            <button onClick={() => setShowFinancial(true)} className="px-2 py-1 bg-neon-blue text-black rounded hover:bg-neon-blue/80">
-              Financial Mode
-            </button>
-          </div>
-          <div
-            className="resize-handle-vertical"
-            style={{
-              position: 'absolute',
-              top: '-6px',
-              left: 0,
-              right: 0,
-              height: '12px',
-              cursor: 'ns-resize'
-            }}
-            onMouseDown={() => setIsResizing({ ...isResizing, bottom: true })}
-          />
-        </div>
+        <BottomHud
+          glowEnabled={glowEnabled}
+          leftHidden={leftHidden}
+          rightHidden={rightHidden}
+          sidebarWidths={sidebarWidths}
+          onOpenSettings={() => setMode('settings')}
+          onOpenFinancial={() => setShowFinancial(true)}
+          onStartResize={() => setIsResizing({ ...isResizing, bottom: true })}
+        />
       )}
       {/* LEFT SIDEBAR */}
-      <div
-        className={`fixed top-0 left-0 h-full z-30 ${
-          leftHidden ? '-translate-x-full' : 'translate-x-0'
-        } backdrop-blur-lg rounded-r-lg`}
-        style={{
-          width: `${sidebarWidths.left}vw`,
-          backgroundColor: 'rgba(0, 0, 0, 0.3)',
-          transition: isResizing.left ? 'none' : 'transform 0.3s ease-in-out'
-        }}
+      <LeftSidebar
+        leftHidden={leftHidden}
+        sidebarWidthVw={sidebarWidths.left}
+        glowEnabled={glowEnabled}
+        isResizingLeft={isResizing.left}
+        onStartResizeLeft={() => setIsResizing((prev) => ({ ...prev, left: true }))}
       >
-        <div className="relative h-full flex flex-col" style={{ userSelect: isResizing.left ? 'none' : 'auto' }}>
           {!leftHidden && (
             <>
               {/* Left Sidebar Header */}
@@ -3455,17 +3899,17 @@ export default function ReactGlobeExample() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
                   </button>
-                  {(warRoomMode || showFinancial || mode === 'financial') && (
-                    <button
-                      onClick={() => { setMode('home'); setShowFinancial(false); setShowGraph(false); setWarRoomMode(false); }}
-                      className="p-1 text-white hover:text-neon-blue"
-                      aria-label="Home"
-                    >
-                      <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1V9z" />
-                      </svg>
-                    </button>
-                  )}
+                   {(warRoomMode || showFinancial || mode === 'financial') && (
+                     <button
+                       onClick={() => { setMode('home'); setShowFinancial(false); setShowGraph(false); setWarRoomMode(false); }}
+                       className="p-1 text-white hover:text-neon-blue"
+                       aria-label="Home"
+                     >
+                       <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9l9-7 9 7v11a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1V9z" />
+                       </svg>
+                     </button>
+                   )}
                   {mode === 'home' ? (
                     <button
                       onClick={() => setMode('chat')}
@@ -3606,9 +4050,9 @@ export default function ReactGlobeExample() {
                   </div>
                   )}
                   {mode === 'ideologram' && (
-                    <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 mb-4">
-                      <h3 className="text-sm font-bold text-neon-blue mb-2">Ideologram Files</h3>
-                      <button className="mb-2 px-2 py-1 bg-gray-700 rounded" onClick={async () => {
+                    <SidebarFilesPanel
+                      user={user}
+                      onRefresh={async () => {
                         try {
                           const token = localStorage.getItem('token');
                           if (token && token !== 'DUMMY_TOKEN') {
@@ -3627,16 +4071,14 @@ export default function ReactGlobeExample() {
                             setFileTree(tree);
                           }
                         } catch {}
-                      }}>Refresh</button>
-                      <div className="text-gray-300" style={{ maxHeight: 160, overflow: 'auto' }}>
-                        {renderFileTreeList()}
-                      </div>
-                    </div>
+                      }}
+                      renderFileTreeList={renderFileTreeList}
+                    />
                   )}
                   {mode === 'ideologram' && (
-                    <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 mb-4">
-                      <h3 className="text-sm font-bold text-neon-blue mb-2">Saved Scores</h3>
-                      <button className="mb-2 px-2 py-1 bg-gray-700 rounded" onClick={async () => {
+                    <SidebarScoresPanel
+                      entries={ideoScores}
+                      onReload={async () => {
                         try {
                           const token = localStorage.getItem('token');
                           if (token && token !== 'DUMMY_TOKEN') {
@@ -3648,28 +4090,8 @@ export default function ReactGlobeExample() {
                             setIdeoScores(Array.isArray(db.entries) ? db.entries : []);
                           }
                         } catch {}
-                      }}>Reload</button>
-                      <div className="text-xs text-gray-300" style={{ maxHeight: 160, overflow: 'auto' }}>
-                        {ideoScores.length === 0 ? (
-                          <div className="text-gray-500">No saved entries</div>
-                        ) : (
-                          <ul className="list-none m-0 p-0">
-                            {ideoScores.slice().reverse().map((e, i) => (
-                              <li key={i} className="py-1 border-b border-gray-800">
-                                <div className="flex gap-2 items-baseline flex-wrap">
-                                  <strong>{e.title || 'Untitled'}</strong>
-                                  {e.author && <span className="text-gray-400">by {e.author}</span>}
-                                  <span className="ml-auto text-gray-400 text-[10px]">{e.createdAt ? new Date(e.createdAt).toLocaleString() : ''}</span>
-                                </div>
-                                <div className="text-[11px] text-gray-300">
-                                  Politicalness: {Math.round((e.metrics?.politicalness||0)*100)}% · econ_lr: {Math.round((e.axes?.econ_lr||0)*100)}%
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    </div>
+                      }}
+                    />
                   )}
                   {/* Year slider for globe data */}
                   {activeGlobeDataset === 'population' && populationYears.length > 0 && (
@@ -3822,28 +4244,9 @@ export default function ReactGlobeExample() {
                   </div>
                 </div>
               )}
-              {/* Resize handle for left sidebar */}
-              <div
-                className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-neon-blue/30 z-50"
-                style={{ transform: 'translateX(50%)' }}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setIsResizing((prev) => ({ ...prev, left: true }));
-                }}
-              />
             </>
           )}
-          {/* Resize handle for left sidebar */}
-          <div
-            className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-neon-blue/30 z-50"
-            style={{ transform: 'translateX(50%)' }}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setIsResizing((prev) => ({ ...prev, left: true }));
-            }}
-          />
-        </div>
-      </div>
+      </LeftSidebar>
       {leftHidden && (
         <button
           onClick={() => setLeftHidden(false)}
@@ -3985,6 +4388,257 @@ export default function ReactGlobeExample() {
       {/* Glow overlay */}
       <GlowOverlay enabled={glowEnabled} />
 
+      {/* Theme Debug removed */}
+      
+      {/* Cursor Dot - Only visible in cursor mode */}
+      {cursorMode && (
+        <div 
+          className="fixed w-4 h-4 bg-red-500 rounded-full border-2 border-white shadow-lg z-[9998] pointer-events-none"
+          style={{
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            boxShadow: '0 0 10px rgba(255, 0, 0, 0.8)'
+          }}
+        />
+      )}
+      
+      {/* Cursor Info Panel - Only visible in cursor mode */}
+      {cursorMode && (
+        <div className="fixed bottom-4 left-4 bg-black/80 text-white p-3 rounded z-[9999] border border-white/20 max-w-xs">
+          <div className="text-sm font-bold mb-2">🎯 Cursor Mode</div>
+          <div className="text-xs space-y-1">
+            <div>Lat: {cursorPosition.lat.toFixed(2)}°</div>
+            <div>Lng: {cursorPosition.lng.toFixed(2)}°</div>
+            {cursorHoverCountry && (
+              <div className="text-green-400">Hovering: {cursorHoverCountry}</div>
+            )}
+            {cursorCountry && (
+              <div className="text-blue-400">Selected: {cursorCountry}</div>
+            )}
+          </div>
+          <div className="text-xs text-gray-400 mt-2">
+            WASD/Arrows: Move | Enter/Space: Select | ESC: Exit
+          </div>
+        </div>
+      )}
+
+      {/* Avatar Rigging System - Main Interface */}
+      <div className="fixed bottom-4 right-4 bg-black/90 text-white rounded-lg z-[9999] border border-neon-blue/50 shadow-2xl backdrop-blur-xl">
+        {/* Header with Toggle */}
+        <div className="flex items-center justify-between p-3 border-b border-neon-blue/30">
+          <h3 className="text-sm font-bold text-neon-blue">🎭 Avatar Rigging System</h3>
+          <button
+            onClick={() => setShowAvatarRig(!showAvatarRig)}
+            className="text-neon-blue hover:text-white transition-colors"
+          >
+            {showAvatarRig ? '−' : '+'}
+          </button>
+        </div>
+        
+        {showAvatarRig && (
+          <div className="p-4 max-w-md max-h-[80vh] overflow-y-auto">
+            {/* Mode Tabs */}
+            <div className="flex space-x-1 mb-4">
+              {['pose', 'face', 'animation'].map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setRiggingMode(mode)}
+                  className={`px-3 py-1 rounded text-xs transition-colors ${
+                    riggingMode === mode
+                      ? 'bg-neon-blue text-black'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </button>
+              ))}
+            </div>
+            
+            {/* Pose Mode - Skeleton Controls */}
+            {riggingMode === 'pose' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">Skeleton Controls</span>
+                  <button
+                    onClick={resetSkeleton}
+                    className="px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-500"
+                  >
+                    Reset
+                  </button>
+                </div>
+                
+                {/* Bone Selection */}
+                <div>
+                  <label className="text-xs text-gray-400 block mb-2">Selected Bone:</label>
+                  <select
+                    value={selectedBone || ''}
+                    onChange={(e) => setSelectedBone(e.target.value)}
+                    className="w-full p-2 bg-gray-800 text-white rounded text-xs border border-gray-600"
+                  >
+                    <option value="">Select a bone...</option>
+                    {Object.keys(skeletonData).map((bone) => (
+                      <option key={bone} value={bone}>{bone}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Bone Transform Controls */}
+                {selectedBone && (
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-semibold text-neon-blue">{selectedBone}</h4>
+                    
+                    {/* Rotation Controls */}
+                    <div>
+                      <span className="text-xs text-gray-400">Rotation:</span>
+                      {['x', 'y', 'z'].map((axis) => (
+                        <div key={axis} className="flex items-center space-x-2 mt-1">
+                          <span className="text-xs text-gray-400 w-4">{axis.toUpperCase()}:</span>
+                          <input
+                            type="range"
+                            min="-180"
+                            max="180"
+                            step="1"
+                            value={skeletonData[selectedBone].rotation[axis]}
+                            onChange={(e) => updateSkeletonBone(selectedBone, 'rotation', axis, parseFloat(e.target.value))}
+                            className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <span className="text-xs text-gray-300 w-12 text-right">
+                            {skeletonData[selectedBone].rotation[axis]}°
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Position Controls */}
+                    <div>
+                      <span className="text-xs text-gray-400">Position:</span>
+                      {['x', 'y', 'z'].map((axis) => (
+                        <div key={axis} className="flex items-center space-x-2 mt-1">
+                          <span className="text-xs text-gray-400 w-4">{axis.toUpperCase()}:</span>
+                          <input
+                            type="range"
+                            min="-2"
+                            max="2"
+                            step="0.1"
+                            value={skeletonData[selectedBone].position[axis]}
+                            onChange={(e) => updateSkeletonBone(selectedBone, 'position', axis, parseFloat(e.target.value))}
+                            className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <span className="text-xs text-gray-300 w-12 text-right">
+                            {skeletonData[selectedBone].position[axis]}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Face Mode - Facial Expression Controls */}
+            {riggingMode === 'face' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">Facial Expression Driver</span>
+                  <button
+                    onClick={resetFaceDriver}
+                    className="px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-500"
+                  >
+                    Reset
+                  </button>
+                </div>
+                
+                {/* Basic Emotions */}
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { key: 'smile', label: 'Smile', range: [-1, 1] },
+                    { key: 'surprise', label: 'Surprise', range: [0, 1] },
+                    { key: 'anger', label: 'Anger', range: [0, 1] },
+                    { key: 'sadness', label: 'Sadness', range: [0, 1] },
+                    { key: 'fear', label: 'Fear', range: [0, 1] },
+                    { key: 'disgust', label: 'Disgust', range: [0, 1] }
+                  ].map(({ key, label, range }) => (
+                    <div key={key} className="space-y-1">
+                      <label className="text-xs text-gray-400">{label}:</label>
+                      <input
+                        type="range"
+                        min={range[0]}
+                        max={range[1]}
+                        step="0.1"
+                        value={faceDriver[key]}
+                        onChange={(e) => updateFaceDriver(key, parseFloat(e.target.value))}
+                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <span className="text-xs text-gray-300 block text-center">
+                        {faceDriver[key].toFixed(1)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Detailed Facial Controls */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold text-neon-blue">Detailed Controls</h4>
+                  {[
+                    { key: 'eyeOpenness', label: 'Eye Openness' },
+                    { key: 'eyebrowHeight', label: 'Eyebrow Height' },
+                    { key: 'mouthOpenness', label: 'Mouth Openness' },
+                    { key: 'jawPosition', label: 'Jaw Position' },
+                    { key: 'cheekPuff', label: 'Cheek Puff' },
+                    { key: 'lipPucker', label: 'Lip Pucker' }
+                  ].map(({ key, label }) => (
+                    <div key={key} className="space-y-1">
+                      <label className="text-xs text-gray-400">{label}:</label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={faceDriver[key]}
+                        onChange={(e) => updateFaceDriver(key, parseFloat(e.target.value))}
+                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <span className="text-xs text-gray-300 block text-center">
+                        {faceDriver[key].toFixed(1)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Animation Mode - Preset Animations */}
+            {riggingMode === 'animation' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">Animation Presets</span>
+                  <button
+                    onClick={exportRigData}
+                    className="px-2 py-1 bg-neon-blue text-black rounded text-xs hover:bg-neon-blue/80"
+                  >
+                    Export
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(animationPresets).map(([key, preset]) => (
+                    <button
+                      key={key}
+                      onClick={() => applyAnimationPreset(key)}
+                      className="p-2 bg-gray-700 text-white rounded text-xs hover:bg-gray-600 text-left"
+                    >
+                      <div className="font-semibold">{preset.name}</div>
+                      <div className="text-gray-400 text-xs">{preset.description}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Settings Gear */}
       <div className="fixed top-4 right-4 z-[9999]">
         <motion.button
@@ -4040,289 +4694,48 @@ export default function ReactGlobeExample() {
 
         {showSettings && (
           <Portal>
-            <div
-              className={`fixed top-[3.5rem] right-4 w-64 max-w-[90vw] ${
-                glowEnabled ? 'border border-neon-blue/50' : 'border border-gray-600'
-              } bg-gray-900/95 rounded-lg shadow-2xl backdrop-blur-xl p-4 z-[99999]`}
-              style={{ maxHeight: '80vh', overflowY: 'auto' }}
-            >
-              {/* Login status */}
-              <div className="mb-4 flex justify-between items-center">
-                <div className="flex items-center space-x-3">
-                  {/* User Avatar */}
-                  {user && userAvatarUrl && (
-                    <div className="relative">
-                      <img 
-                        src={userAvatarUrl} 
-                        alt="User Avatar" 
-                        className="w-10 h-10 rounded-full border-2 border-neon-blue/50"
-                      />
-                      {/* Worldview Assessment Score Badge */}
-                      {mode === 'ideologram' && assessmentHistory.length > 0 && (
-                        <div className="absolute -top-2 -right-2 bg-gradient-to-r from-green-500 to-blue-500 text-white text-xs px-2 py-1 rounded-full border-2 border-white shadow-lg">
-                          {(() => {
-                            const weightedScores = computeWeightedAverage(assessmentHistory);
-                            if (weightedScores && Object.keys(weightedScores).length > 0) {
-                              const avgScore = Object.values(weightedScores).reduce((sum, data) => sum + data.score, 0) / Object.keys(weightedScores).length;
-                              return `${Math.round(avgScore * 100)}%`;
-                            }
-                            return 'N/A';
-                          })()}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex flex-col">
-                    <span className="text-sm text-white">
-                      {user ? `Signed in as ${user.email}` : 'Not signed in'}
-                    </span>
-                    {/* Worldview Assessment Summary */}
-                    {mode === 'ideologram' && assessmentHistory.length > 0 && (
-                      <div className="text-xs text-gray-300 mt-1">
-                        {(() => {
-                          const weightedScores = computeWeightedAverage(assessmentHistory);
-                          if (weightedScores && Object.keys(weightedScores).length > 0) {
-                            const dimensions = Object.keys(weightedScores).length;
-                            const lastAssessment = Math.max(...Object.values(weightedScores).map(data => new Date(data.lastAssessment).getTime()));
-                            return `${dimensions} dimensions • Last: ${new Date(lastAssessment).toLocaleDateString()}`;
-                          }
-                          return 'No assessments yet';
-                        })()}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {user && (
-                  <button onClick={logout} className="px-2 py-1 bg-red-600 text-white rounded">
-                    Logout
-                  </button>
-                )}
-                {!user && (
-                  <div className="flex flex-col space-y-2">
-                    <button
-                      onClick={loginWithGoogle}
-                      className="px-2 py-1 bg-neon-blue text-black rounded"
-                    >
-                      Continue with Google
-                    </button>
-                    <button
-                      onClick={() => navigate('/login')}
-                      className="px-2 py-1 bg-neon-purple text-black rounded"
-                    >
-                      Login with Email
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div className="space-y-4">
-                {/* Glow Toggle */}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Glow Effects</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={glowEnabled}
-                      onChange={(e) => setGlowEnabled(e.target.checked)}
-                      disabled={lowPowerMode}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-                {/* Update FPS */}
-                <div className="space-y-2">
-                  <span className="text-sm text-neon-blue block">Update Rate</span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setUpdateFPS(1)}
-                      className={`flex-1 p-2 rounded-lg ${
-                        updateFPS === 1 ? 'bg-neon-blue/20 text-neon-blue' : 'bg-gray-800/40 text-gray-300'
-                      }`}
-                    >
-                      1 FPS
-                    </button>
-                    <button
-                      onClick={() => setUpdateFPS(24)}
-                      className={`flex-1 p-2 rounded-lg ${
-                        updateFPS === 24 ? 'bg-neon-blue/20 text-neon-blue' : 'bg-gray-800/40 text-gray-300'
-                      }`}
-                    >
-                      24 FPS
-                    </button>
-                    <button
-                      onClick={() => setUpdateFPS(60)}
-                      className={`flex-1 p-2 rounded-lg ${
-                        updateFPS === 60 ? 'bg-neon-blue/20 text-neon-blue' : 'bg-gray-800/40 text-gray-300'
-                      }`}
-                    >
-                      60 FPS
-                    </button>
-                  </div>
-                </div>
-                {/* Scanner & Particles */}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Scanner Effect</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={showScanner}
-                      onChange={(e) => setShowScanner(e.target.checked)}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Particles</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={showParticles}
-                      onChange={(e) => setShowParticles(e.target.checked)}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-                <div className="space-y-2">
-                  <span className="text-sm text-neon-blue block">Particles Density</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={particlesOpacity}
-                    onChange={(e) => setParticlesOpacity(parseFloat(e.target.value))}
-                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <span className="text-xs text-neon-purple">{Math.round(particlesOpacity * 100)}%</span>
-                </div>
-                {/* Rotation & CPU */}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Auto Rotation</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={rotationEnabled}
-                      onChange={(e) => setRotationEnabled(e.target.checked)}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">CPU Monitor</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={enableCpuMonitor}
-                      onChange={(e) => setEnableCpuMonitor(e.target.checked)}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-                {enableCpuMonitor && (
-                  <div className="text-xs text-neon-purple">
-                    System Load: {cpuUsage.toFixed(1)}%
-                  </div>
-                )}
-                {/* Globe */}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Globe Visibility</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={showGlobe}
-                      onChange={(e) => setShowGlobe(e.target.checked)}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Power Save Mode</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={lowPowerMode}
-                      onChange={(e) => setLowPowerMode(e.target.checked)}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Globe Texture</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={showGlobeTexture}
-                      onChange={(e) => setShowGlobeTexture(e.target.checked)}
-                      disabled={lowPowerMode}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Globe Opacity</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={globeOpacity > 0.5}
-                      onChange={(e) => setGlobeOpacity(e.target.checked ? 1 : 0.5)}
-                      disabled={lowPowerMode}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-                <div className="space-y-2">
-                  <span className="text-sm text-neon-blue block">Globe Material</span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setMaterialType('phong')}
-                      className={`flex-1 p-2 rounded-lg ${
-                        materialType === 'phong' ? 'bg-neon-blue/20 text-neon-blue' : 'bg-gray-800/40 text-gray-300'
-                      }`}
-                    >
-                      Phong
-                    </button>
-                    <button
-                      onClick={() => setMaterialType('lambert')}
-                      className={`flex-1 p-2 rounded-lg ${
-                        materialType === 'lambert' ? 'bg-neon-purple/20 text-neon-purple' : 'bg-gray-800/40 text-gray-300'
-                      }`}
-                    >
-                      Lambert
-                    </button>
-                    <button
-                      onClick={() => setMaterialType('basic')}
-                      className={`flex-1 p-2 rounded-lg ${
-                        materialType === 'basic' ? 'bg-neon-red/20 text-neon-red' : 'bg-gray-800/40 text-gray-300'
-                      }`}
-                    >
-                      Basic
-                    </button>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Lat/Lon Grid</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={showGraticules}
-                      onChange={(e) => setShowGraticules(e.target.checked)}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neon-blue">Atmosphere Glow</span>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={showAtmosphere}
-                      onChange={(e) => setShowAtmosphere(e.target.checked)}
-                      disabled={lowPowerMode}
-                    />
-                    <span className="slider round"></span>
-                  </label>
-                </div>
-              </div>
-            </div>
+            <SettingsPanel
+              user={user}
+              userAvatarUrl={userAvatarUrl}
+              mode={mode}
+              assessmentHistory={assessmentHistory}
+              isLiquidGlassActive={isLiquidGlassActive}
+              glowEnabled={glowEnabled}
+              setGlowEnabled={setGlowEnabled}
+              lowPowerMode={lowPowerMode}
+              updateFPS={updateFPS}
+              setUpdateFPS={setUpdateFPS}
+              showScanner={showScanner}
+              setShowScanner={setShowScanner}
+              cursorMode={cursorMode}
+              setCursorMode={setCursorMode}
+              showParticles={showParticles}
+              setShowParticles={setShowParticles}
+              particlesOpacity={particlesOpacity}
+              setParticlesOpacity={setParticlesOpacity}
+              rotationEnabled={rotationEnabled}
+              setRotationEnabled={setRotationEnabled}
+              enableCpuMonitor={enableCpuMonitor}
+              setEnableCpuMonitor={setEnableCpuMonitor}
+              cpuUsage={cpuUsage}
+              showGlobe={showGlobe}
+              setShowGlobe={setShowGlobe}
+              showGlobeTexture={showGlobeTexture}
+              setShowGlobeTexture={setShowGlobeTexture}
+              globeTextureType={globeTextureType}
+              setGlobeTextureType={setGlobeTextureType}
+              globeOpacity={globeOpacity}
+              setGlobeOpacity={setGlobeOpacity}
+              materialType={materialType}
+              setMaterialType={setMaterialType}
+              showGraticules={showGraticules}
+              setShowGraticules={setShowGraticules}
+              showAtmosphere={showAtmosphere}
+              setShowAtmosphere={setShowAtmosphere}
+              logout={logout}
+              loginWithGoogle={loginWithGoogle}
+              navigate={navigate}
+            />
           </Portal>
         )}
 
@@ -4739,5 +5152,13 @@ export default function ReactGlobeExample() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ReactGlobeExample() {
+  return (
+    <DatasetProvider>
+      <ReactGlobeExampleInner />
+    </DatasetProvider>
   );
 }

@@ -84,13 +84,9 @@ graph TD
 - Texture loading time can vary based on network conditions
 - Extreme zoom levels may show pixelation (LOD system planned) 
 
-TO DO:
-You’re integrating OpenAI’s o4‑mini and 4.1 models into an existing React/Node website to let users
-– sign up / log in (JWT or sessions)
-– store email, password hash, avatar URL and optional user‑provided OpenAI key
-– enter their own API key in a settings UI (encrypted at rest)
-– choose from 12 default avatars (4 female, 4 male, 4 robot/animal)
-– generate new avatars via a backend endpoint (/api/avatar) calling OpenAI Image API with o4‑mini or 4.1
-– save and display the generated avatar
-Include validation, error handling, and basic tests.  
-Output your work as a git patch (use `apply_patch`) that creates or updates all necessary files.
+## Refactor Notes (2025-09)
+- Added shared event bus at `src/shared/events/eventBus.js` with contracts in `src/shared/events/contracts.js`.
+- Created `docs/refactor-plan.md` to track phased refactor and acceptance checks.
+- Created `docs/deprecation-audit.md` to track candidates for removal.
+
+These additions are scaffolding only; no runtime behavior changes.

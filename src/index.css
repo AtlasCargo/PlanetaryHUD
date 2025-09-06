@@ -2,12 +2,71 @@
 @tailwind components;
 @tailwind utilities;
 
+/* TEST: This should make the page background bright green if CSS is loading */
+body {
+  background-color: lime !important;
+}
+
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+/* Theme CSS Variables - These will be dynamically updated by ThemeContext */
+:root {
+  --bg-primary: #000000;
+  --bg-secondary: rgba(0, 0, 0, 0.8);
+  --bg-tertiary: rgba(0, 0, 0, 0.4);
+  --text-primary: #ffffff;
+  --text-secondary: #00e6ff;
+  --text-accent: #6432ff;
+  --border-primary: rgba(0, 230, 255, 0.3);
+  --border-secondary: rgba(0, 230, 255, 0.2);
+  --glow-primary: rgba(0, 230, 255, 0.7);
+  --glow-secondary: rgba(100, 50, 255, 0.5);
+  --button-bg: #000000;
+  --button-border: #00e6ff;
+  --button-hover: rgba(0, 230, 255, 0.1);
+  --sidebar-bg: rgba(0, 0, 0, 0.8);
+  --card-bg: rgba(0, 0, 0, 0.4);
+  --input-bg: rgba(0, 0, 0, 0.8);
+  --input-border: rgba(0, 230, 255, 0.3);
+  --shadow-color: rgba(0, 230, 255, 0.2);
+}
+
+/* Theme-specific styles */
+.theme-liquid-glass {
+  /* Liquid Glass specific overrides */
+  --bg-primary: rgba(0, 0, 0, 0.95);
+  --bg-secondary: rgba(255, 255, 255, 0.05);
+  --bg-tertiary: rgba(255, 255, 255, 0.02);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.9);
+  --text-accent: rgba(255, 255, 255, 0.8);
+  --border-primary: rgba(255, 255, 255, 0.2);
+  --border-secondary: rgba(255, 255, 255, 0.1);
+  --glow-primary: rgba(255, 255, 255, 0.3);
+  --glow-secondary: rgba(255, 255, 255, 0.2);
+  --button-bg: rgba(255, 255, 255, 0.1);
+  --button-border: rgba(255, 255, 255, 0.2);
+  --button-hover: rgba(255, 255, 255, 0.15);
+  --sidebar-bg: rgba(255, 255, 255, 0.05);
+  --card-bg: rgba(255, 255, 255, 0.08);
+  --input-bg: rgba(255, 255, 255, 0.05);
+  --input-border: rgba(255, 255, 255, 0.2);
+  --shadow-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Force theme application with higher specificity */
+body.theme-liquid-glass {
+  background-color: rgba(0, 0, 0, 0.95) !important;
+}
+
+body.theme-liquid-glass * {
+  transition: all 0.3s ease;
+}
 
 body {
   margin: 0;
   padding: 0;
-  background-color: black;
+  background-color: var(--bg-primary);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -596,5 +655,495 @@ body:has(.resize-handle-vertical.resizing) {
 
 .star-background.visible {
   opacity: 0.2;
+}
+
+/* Base color definitions */
+.neon-blue {
+  color: #00e6ff;
+}
+
+.bg-neon-blue {
+  background-color: #00e6ff;
+}
+
+.border-neon-blue {
+  border-color: #00e6ff;
+}
+
+/* Liquid Glass Theme Enhancements */
+.theme-liquid-glass .neon-button {
+  background: var(--button-bg) !important;
+  border: 2px solid var(--button-border) !important;
+  color: var(--text-primary) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: all 0.3s ease;
+}
+
+.theme-liquid-glass .neon-button:hover {
+  background: var(--button-hover);
+  box-shadow: 0 0 20px var(--glow-primary);
+  transform: translateY(-2px);
+}
+
+.theme-liquid-glass .bg-gray-900\/40 {
+  background: var(--card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-primary);
+}
+
+.theme-liquid-glass .bg-gray-800 {
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+}
+
+.theme-liquid-glass .border-neon-blue\/20 {
+  border-color: var(--border-primary);
+}
+
+.theme-liquid-glass .text-neon-blue {
+  color: var(--text-secondary);
+}
+
+.theme-liquid-glass .text-white {
+  color: var(--text-primary);
+}
+
+.theme-liquid-glass .text-gray-400 {
+  color: var(--text-accent);
+}
+
+.theme-liquid-glass .text-gray-300 {
+  color: var(--text-accent);
+}
+
+.theme-liquid-glass .text-gray-500 {
+  color: var(--text-accent);
+}
+
+.theme-liquid-glass .text-gray-100 {
+  color: var(--text-primary);
+}
+
+.theme-liquid-glass .bg-neon-blue {
+  background: var(--button-bg);
+  border: 1px solid var(--button-border);
+  color: var(--text-primary);
+}
+
+.theme-liquid-glass .bg-neon-purple {
+  background: var(--button-bg);
+  border: 1px solid var(--button-border);
+  color: var(--text-primary);
+}
+
+.theme-liquid-glass .bg-gray-700 {
+  background: var(--card-bg);
+  border: 1px solid var(--border-secondary);
+}
+
+.theme-liquid-glass .bg-gray-800\/40 {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+}
+
+.theme-liquid-glass .border-gray-700 {
+  border-color: var(--border-secondary);
+}
+
+.theme-liquid-glass .border-gray-800 {
+  border-color: var(--border-secondary);
+}
+
+.theme-liquid-glass .hover\:bg-gray-700\/50:hover {
+  background: var(--button-hover);
+}
+
+.theme-liquid-glass .hover\:text-neon-blue:hover {
+  color: var(--text-secondary);
+}
+
+.theme-liquid-glass .hover\:bg-neon-blue\/80:hover {
+  background: var(--button-hover);
+}
+
+.theme-liquid-glass .hover\:bg-neon-purple\/80:hover {
+  background: var(--button-hover);
+}
+
+/* Glass morphism effects for liquid glass theme */
+.theme-liquid-glass .liquid-glass-effect {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+}
+
+/* Comprehensive theme overrides for existing elements */
+.theme-liquid-glass {
+  /* Override body background */
+  background-color: var(--bg-primary) !important;
+}
+
+/* HIGH SPECIFICITY THEME OVERRIDES - These should definitely work */
+body.theme-liquid-glass {
+  background-color: rgba(0, 0, 0, 0.95) !important;
+}
+
+/* Target the settings panel specifically */
+body.theme-liquid-glass .fixed.top-\[3\.5rem\].right-4.w-64.max-w-\[90vw\] {
+  background: rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+}
+
+/* Theme dropdown legibility in Liquid Glass */
+body.theme-liquid-glass .liquid-glass-dropdown {
+  background: rgba(20, 20, 20, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+body.theme-liquid-glass .liquid-glass-dropdown .text-gray-400 {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Target all gray backgrounds */
+body.theme-liquid-glass [class*="bg-gray-900"] {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+body.theme-liquid-glass [class*="bg-gray-800"] {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(15px) !important;
+  -webkit-backdrop-filter: blur(15px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+body.theme-liquid-glass [class*="bg-gray-700"] {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Target neon colors */
+body.theme-liquid-glass [class*="bg-neon-blue"] {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+
+body.theme-liquid-glass [class*="bg-neon-purple"] {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+
+/* Target text colors */
+body.theme-liquid-glass [class*="text-neon-blue"] {
+  color: rgba(255, 255, 255, 0.9) !important;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.5) !important;
+}
+
+body.theme-liquid-glass [class*="text-white"] {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+body.theme-liquid-glass [class*="text-gray-300"],
+body.theme-liquid-glass [class*="text-gray-400"],
+body.theme-liquid-glass [class*="text-gray-500"] {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Target borders */
+body.theme-liquid-glass [class*="border-neon-blue"] {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+body.theme-liquid-glass [class*="border-gray-600"],
+body.theme-liquid-glass [class*="border-gray-700"],
+body.theme-liquid-glass [class*="border-gray-800"] {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Removed debug red background */
+
+/* Target specific elements with higher specificity */
+body.theme-liquid-glass .bg-gray-900\/95,
+body.theme-liquid-glass .bg-gray-900\/40,
+body.theme-liquid-glass .bg-gray-800\/40,
+body.theme-liquid-glass .bg-gray-800,
+body.theme-liquid-glass .bg-gray-700 {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Target neon buttons with higher specificity */
+body.theme-liquid-glass .bg-neon-blue,
+body.theme-liquid-glass .bg-neon-purple {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+
+/* TARGET THE ACTUAL REACT COMPONENTS - This should work! */
+body.theme-liquid-glass .fixed.top-\[3\.5rem\].right-4.w-64.max-w-\[90vw\] {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Target the main container */
+body.theme-liquid-glass .relative.flex.w-screen.h-screen.text-gray-100.overflow-hidden.font-sciFi.bg-black {
+  background: linear-gradient(45deg, red, blue, green) !important;
+  background-size: 400% 400% !important;
+  animation: rainbow 2s ease infinite !important;
+}
+
+/* Target the settings panel specifically with very high specificity */
+body.theme-liquid-glass .fixed.top-\[3\.5rem\].right-4.w-64.max-w-\[90vw\].bg-gray-900\/95 {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  box-shadow: 0 8px 32px rgba(255, 255, 255, 0.1) !important;
+}
+
+@keyframes rainbow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Target all the gray backgrounds in the React components */
+body.theme-liquid-glass [class*="bg-gray-900"] {
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+body.theme-liquid-glass [class*="bg-gray-800"] {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(15px) !important;
+  -webkit-backdrop-filter: blur(15px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Target the neon buttons */
+body.theme-liquid-glass [class*="bg-neon-blue"],
+body.theme-liquid-glass [class*="bg-neon-purple"] {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+
+/* Override the above for specific elements to show glass effect */
+body.theme-liquid-glass .fixed.top-\[3\.5rem\].right-4.w-64.max-w-\[90vw\] {
+  border: 2px solid rgba(255, 255, 255, 0.3) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+}
+
+/* Cursor mode styles */
+.cursor-mode-active {
+  cursor: crosshair !important;
+}
+
+.cursor-dot {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.7; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+.theme-liquid-glass .bg-gray-800\/40 {
+  background: var(--input-bg) !important;
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  border: 1px solid var(--input-border) !important;
+}
+
+.theme-liquid-glass .bg-gray-700 {
+  background: var(--card-bg) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-secondary) !important;
+}
+
+.theme-liquid-glass .bg-gray-800 {
+  background: var(--sidebar-bg) !important;
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+}
+
+.theme-liquid-glass .bg-black {
+  background: var(--bg-primary) !important;
+}
+
+.theme-liquid-glass .bg-red-600 {
+  background: var(--button-bg) !important;
+  border: 1px solid var(--button-border) !important;
+  color: var(--text-primary) !important;
+}
+
+.theme-liquid-glass .bg-neon-blue {
+  background: var(--button-bg) !important;
+  border: 1px solid var(--button-border) !important;
+  color: var(--text-primary) !important;
+}
+
+.theme-liquid-glass .bg-neon-purple {
+  background: var(--button-bg) !important;
+  border: 1px solid var(--button-border) !important;
+  color: var(--text-primary) !important;
+}
+
+.theme-liquid-glass .bg-neon-blue\/20 {
+  background: var(--button-hover) !important;
+  border: 1px solid var(--border-primary) !important;
+}
+
+.theme-liquid-glass .bg-neon-purple\/20 {
+  background: var(--button-hover) !important;
+  border: 1px solid var(--border-primary) !important;
+}
+
+.theme-liquid-glass .bg-gray-800\/40 {
+  background: var(--input-bg) !important;
+  border: 1px solid var(--input-border) !important;
+}
+
+.theme-liquid-glass .border-neon-blue\/50 {
+  border-color: var(--border-primary) !important;
+}
+
+.theme-liquid-glass .border-gray-600 {
+  border-color: var(--border-secondary) !important;
+}
+
+.theme-liquid-glass .border-gray-700 {
+  border-color: var(--border-secondary) !important;
+}
+
+.theme-liquid-glass .border-gray-800 {
+  border-color: var(--border-secondary) !important;
+}
+
+.theme-liquid-glass .text-neon-blue {
+  color: var(--text-secondary) !important;
+}
+
+.theme-liquid-glass .text-white {
+  color: var(--text-primary) !important;
+}
+
+.theme-liquid-glass .text-gray-300 {
+  color: var(--text-accent) !important;
+}
+
+.theme-liquid-glass .text-gray-400 {
+  color: var(--text-accent) !important;
+}
+
+.theme-liquid-glass .text-gray-500 {
+  color: var(--text-accent) !important;
+}
+
+.theme-liquid-glass .text-gray-100 {
+  color: var(--text-primary) !important;
+}
+
+.theme-liquid-glass .hover\:bg-gray-700\/50:hover {
+  background: var(--button-hover) !important;
+}
+
+.theme-liquid-glass .hover\:text-neon-blue:hover {
+  color: var(--text-secondary) !important;
+}
+
+.theme-liquid-glass .hover\:bg-neon-blue\/80:hover {
+  background: var(--button-hover) !important;
+}
+
+.theme-liquid-glass .hover\:bg-neon-purple\/80:hover {
+  background: var(--button-hover) !important;
+}
+
+/* Override specific component styles */
+.theme-liquid-glass .switch .slider {
+  background-color: var(--input-bg) !important;
+  border: 1px solid var(--border-primary) !important;
+}
+
+.theme-liquid-glass .switch .slider:before {
+  background-color: var(--text-secondary) !important;
+}
+
+.theme-liquid-glass input[type="range"]::-webkit-slider-thumb {
+  background: var(--text-secondary) !important;
+}
+
+.theme-liquid-glass .slider.round {
+  border-radius: 34px;
+}
+
+.theme-liquid-glass .slider.round:before {
+  border-radius: 50%;
+}
+
+.theme-liquid-glass .liquid-glass-panel {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+}
+
+.theme-liquid-glass .liquid-glass-button {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.theme-liquid-glass .liquid-glass-button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(255, 255, 255, 0.2);
+}
+
+/* Liquid Glass: enforce opaque theme dropdown above all generic overrides */
+body.theme-liquid-glass .liquid-glass-dropdown {
+  background: rgba(10, 10, 10, 0.98) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+body.theme-liquid-glass .liquid-glass-dropdown .text-gray-400 {
+  color: rgba(255, 255, 255, 0.85) !important;
 }
 

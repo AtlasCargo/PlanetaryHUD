@@ -1,0 +1,35 @@
+---
+# Live task registry for coordinating agents. Update via MCP events or manual edits.
+# Fields: id, title, plan, branch, status, owner, focus, locks, depends_on, heartbeat, sha
+
+- id: REF-001
+  title: HUD core refactor
+  plan: docs/plans/refactor.md
+  branch: feature/refactor-hud-core
+  status: in_progress
+  owner: agent:refactor
+  focus:
+    - src/hud/**
+    - src/ui/**
+  locks:
+    - src/hud/core/**
+  depends_on: []
+  heartbeat: ""
+  sha: ""
+
+- id: VOICE-003
+  title: Improve chat audio transcription
+  plan: docs/plans/transcription.md
+  branch: feature/chat-transcription
+  status: pending
+  owner: agent:transcription
+  focus:
+    - src/voice/**
+    - src/chat/**
+  locks:
+    - src/voice/core/**
+  depends_on:
+    - REF-001
+  heartbeat: ""
+  sha: ""
+

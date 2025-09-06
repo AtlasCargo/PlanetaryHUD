@@ -5,17 +5,20 @@
     "fetch-owid-slugs-py": "python3 scripts/fetch_owid_slugs.py",
     "start": "react-scripts start",
     "start-server": "node server/index.js",
-    "dev": "npm run start-server & react-scripts start",
+    "start-mcp": "node server/mcp-tasks.js",
+    "prepare-ascii-borders": "node scripts/prepare-ascii-borders.js"
+    "dev": "node scripts/dev.js",
     "build": "react-scripts build",
     "pretest": "mkdir -p tmp tmp/jest_cache",
     "test": "TMPDIR=./tmp jest --cacheDirectory=./tmp/jest_cache --passWithNoTests --runInBand"
   },
-  "proxy": "http://localhost:5999",
+  "proxy": "http://127.0.0.1:5999",
   "devDependencies": {
     "jest": "^29.5.0",
     "supertest": "^6.3.3"
   },
   "dependencies": {
+    "@paper-design/shaders-react": "^0.0.47",
     "@react-three/postprocessing": "^2.19.1",
     "@types/d3": "^7.4.3",
     "@types/three": "^0.172.0",
@@ -25,7 +28,6 @@
     "cheerio": "^1.0.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
-    "http-proxy-middleware": "^3.0.0",
     "crypto-js": "^4.1.1",
     "d3": "^7.9.0",
     "d3-dsv": "^3.0.1",
@@ -33,7 +35,9 @@
     "express": "^4.18.2",
     "express-session": "^1.17.3",
     "framer-motion": "^10.16.0",
+    "http-proxy-middleware": "^3.0.0",
     "jsonwebtoken": "^9.0.0",
+    "multer": "^1.4.5-lts.1",
     "jszip": "^3.10.1",
     "lowdb": "^1.0.0",
     "openai": "^4.3.1",
@@ -51,7 +55,8 @@
     "tailwindcss": "^3.3.3",
     "three": "^0.172.0",
     "three-globe": "^2.24.0",
-    "tsparticles": "^2.12.0"
+    "tsparticles": "^2.12.0",
+    "ws": "^8.18.0"
   },
   "overrides": {
     "react": "^18.3.1",

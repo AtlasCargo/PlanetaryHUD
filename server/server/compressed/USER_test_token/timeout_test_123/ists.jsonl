@@ -1,0 +1,1 @@
+{"id": "timeout_test_123:0.0.0:30313a6e", "triple": ["This", "is", "a test sentence that should trigger the extraction step"], "polarity": "affirm", "modality": "assertive", "tense": "timeless", "hedging": "none", "scope": "narrator_voice", "entities": [], "evidence_span": [0, 64], "confidence": 0.3}

@@ -1,0 +1,13 @@
+{
+  "tokens": 40,
+  "statements": 2,
+  "statements_per_1k_tokens": 50.0,
+  "assertive_ratio": 1.0,
+  "modal_ratio": 0.0,
+  "avg_compressed_bits_per_token": 69.6,
+  "chapters": {
+    "0": {
+      "statements_per_1k_tokens": 50.0
+    }
+  }
+}
