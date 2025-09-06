@@ -20,7 +20,7 @@ import eventBus from '../shared/events/eventBus';
 import { Events } from '../shared/events/contracts';
 import Globe from './Globe';
 import GlobeController from '../features/globe/GlobeController';
-import DatasetControlPanel from '../features/datasets/DatasetControlPanel';
+import DatasetController from '../features/datasets/DatasetController';
 import BottomHud from '../features/ui/BottomHud';
 import LeftSidebar from '../features/ui/LeftSidebar';
 import RightSidebarContent from '../features/ui/RightSidebarContent';
@@ -3437,26 +3437,8 @@ function ReactGlobeExampleInner() {
       {/* Tooltip moved to TooltipLayer (event-driven) */}
       <TooltipLayer />
 
-      {!showGraph && activeGlobeDataset === 'life-expectancy' && (
-        <DatasetControlPanel
-          activeGlobeDataset={activeGlobeDataset}
-          availableRegions={availableRegions}
-          selectedRegion={selectedRegion}
-          onChangeRegion={setSelectedRegion}
-        />
-      )}
-
-      {!showGraph && activeGlobeDataset === 'population' && (
-        <DatasetControlPanel
-          activeGlobeDataset={activeGlobeDataset}
-          availableRegions={availableRegions}
-          selectedRegion={selectedRegion}
-          onChangeRegion={setSelectedRegion}
-        />
-      )}
-
-      {!showGraph && activeGlobeDataset === 'NY.GDP.PCAP.PP.KD' && (
-        <DatasetControlPanel
+      {!showGraph && (
+        <DatasetController
           activeGlobeDataset={activeGlobeDataset}
           availableRegions={availableRegions}
           selectedRegion={selectedRegion}
