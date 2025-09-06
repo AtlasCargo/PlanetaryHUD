@@ -51,6 +51,16 @@ Interact with the 3D globe by clicking and dragging to rotate, and scrolling to 
 
 Explore different features and datasets available on the interface.
 
+## ASCII Mode
+
+For a low‑power, text‑only rendering, open `/ascii`.
+
+- Modes: Flat Map (GeoJSON), Globe (software, land‑mask based), Globe (WebGL experimental)
+- Typical size: 160×90 chars (~800×450) at 1 fps
+- Data prep: `npm run prepare-ascii-borders` to generate `public/geo/countries.geojson`
+
+See `docs/ascii.md` for details and roadmap.
+
 ## Contributing
 
 Contributions are welcome! Please follow these steps:

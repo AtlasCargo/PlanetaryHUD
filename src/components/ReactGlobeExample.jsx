@@ -23,6 +23,9 @@ import GlobeController from '../features/globe/GlobeController';
 import DatasetControlPanel from '../features/datasets/DatasetControlPanel';
 import BottomHud from '../features/ui/BottomHud';
 import LeftSidebar from '../features/ui/LeftSidebar';
+import RightSidebarContent from '../features/ui/RightSidebarContent';
+import TopHud from '../features/ui/TopHud';
+import CursorOverlays from '../features/ui/CursorOverlays';
 import { scaleSequentialSqrt } from 'd3-scale';
 import { interpolateYlOrRd, interpolateRdYlGn, interpolateGreys } from 'd3-scale-chromatic';
 import { csvParse } from 'd3-dsv';
@@ -45,8 +48,14 @@ import IdeologramPanel from '../features/ideologram/IdeologramPanel';
 import ChatIntegrationInfo from '../features/ideologram/ChatIntegrationInfo';
 import TextCompressionPanel from '../features/ideologram/TextCompressionPanel';
 import CompressionResultsPanel from '../features/ideologram/CompressionResultsPanel';
+import WorldviewPanel from '../features/ideologram/WorldviewPanel';
+import ReadBooksPanel from '../features/ideologram/ReadBooksPanel';
+import EnrichmentDetailModal from '../features/ideologram/EnrichmentDetailModal';
 import SettingsPanel from '../features/ui/SettingsPanel';
+import DatasetSearchPanel from '../features/datasets/DatasetSearchPanel';
 import LiquidGlassShaderBackground from './Effects/LiquidGlassShaderBackground';
+import FacePreview from '../features/avatar/FacePreview';
+import AvatarHead from '../features/avatar/AvatarHead';
 import RealtimeCaptionOverlay from '../features/voice/RealtimeCaptionOverlay';
 import { getCountries, getIndicators, getIndicatorData } from '../services/worldBankApi';
 import { sendMessage, setApiKey } from '../services/openaiClient';
@@ -2002,6 +2011,35 @@ function ReactGlobeExampleInner() {
   });
   
   const [riggingMode, setRiggingMode] = useState('pose'); // 'pose', 'face', 'animation'
+  // Live lipsync → faceDriver mapping
+  const [liveSync, setLiveSync] = useState(true);
+  const [liveBlend, setLiveBlend] = useState(1.0);
+  const [headLoaded, setHeadLoaded] = useState(null); // null until AvatarHead reports
+  useEffect(() => {
+    const off = eventBus.on(Events.VoiceAvatarViseme, (p) => {
+      if (!liveSync || !p || !p.shapes) return;
+      const { JawOpen = 0, MouthWide = 0.5, MouthPucker = 0 } = p.shapes;
+      setFaceDriver(prev => {
+        const clamp01 = (v) => Math.max(0, Math.min(1, v));
+        const clampSym = (v) => Math.max(-1, Math.min(1, v));
+        const live = {
+          mouthOpenness: clamp01(JawOpen),
+          jawPosition: clamp01(0.4 + JawOpen * 0.4),
+          lipPucker: clamp01(MouthPucker),
+          smile: clampSym((MouthWide - 0.5) * 2)
+        };
+        const w = Math.max(0, Math.min(1, liveBlend));
+        return {
+          ...prev,
+          mouthOpenness: prev.mouthOpenness * (1 - w) + live.mouthOpenness * w,
+          jawPosition: prev.jawPosition * (1 - w) + live.jawPosition * w,
+          lipPucker: prev.lipPucker * (1 - w) + live.lipPucker * w,
+          smile: prev.smile * (1 - w) + live.smile * w
+        };
+      });
+    });
+    return () => off();
+  }, [liveSync, liveBlend]);
   const [selectedBone, setSelectedBone] = useState(null);
   const [animationPresets, setAnimationPresets] = useState({
     idle: { name: 'Idle', description: 'Natural standing pose' },
@@ -2040,54 +2078,23 @@ function ReactGlobeExampleInner() {
 
       {/* TOP HUD PANEL */}
       {mode !== 'chat' && mode !== 'settings' && mode !== 'ideologram' && (
-        <div
-          style={{
-            height: `${Math.min(dimensions.top, 30)}vh`,
-            minHeight: warRoomMode ? '80px' : '40px',
-            left: !leftHidden ? `${sidebarWidths.left}vw` : '0',
-            right: !rightHidden ? `${sidebarWidths.right}vw` : '0',
-            margin: '0 5px'
-          }}
-          className={`absolute top-0 ${
-            glowEnabled
-              ? 'bg-gradient-to-b from-neon-blue/10 to-transparent border-b border-neon-blue/50'
-              : 'bg-gray-900/50 border-b border-gray-600'
-          } flex flex-col items-center justify-center ${warRoomMode ? 'z-50' : 'z-10'} backdrop-blur-lg rounded-lg transition-all duration-300`}
-        >
-          <h1
-            onClick={() => { setMode('home'); setShowFinancial(false); setShowGraph(false); setWarRoomMode(false); }}
-            className={`text-2xl sm:text-4xl md:text-6xl font-bold tracking-widest ${
-              glowEnabled
-                ? 'bg-gradient-to-r from-green-400 to-blue-400 bg-clip-text text-transparent'
-                : 'text-green-700'
-            } relative px-2 text-center`}
-          >
-            PLANETARY HUD
-          </h1>
-          {isLoggedIn && warRoomMode && (
-            <button
-              onClick={() => setWarRoomMode(false)}
-              className="mt-2 px-4 py-2 bg-red-600 text-white rounded-full animate-pulse"
-            >
-              War Room
-            </button>
-          )}
-          {/* Resize handle for top bar */}
-          <div
-            className="resize-handle-vertical"
-            style={{ bottom: '-6px' }}
-            onMouseDown={() => setIsResizing({ ...isResizing, top: true })}
-          />
-        </div>
+        <TopHud
+          glowEnabled={glowEnabled}
+          dimensionsTop={dimensions.top}
+          warRoomMode={warRoomMode}
+          leftHidden={leftHidden}
+          rightHidden={rightHidden}
+          sidebarWidths={sidebarWidths}
+          isResizing={isResizing}
+          setIsResizing={setIsResizing}
+          isLoggedIn={isLoggedIn}
+          setMode={setMode}
+          setShowFinancial={setShowFinancial}
+          setShowGraph={setShowGraph}
+          setWarRoomMode={setWarRoomMode}
+        />
       )}
-      <div
-        className={`hidden`}
-        style={{
-          width: `${sidebarWidths.left}vw`,
-          backgroundColor: 'rgba(0, 0, 0, 0.3)',
-          transition: isResizing.left ? 'none' : 'transform 0.3s ease-in-out'
-        }}
-      >
+      <div className="hidden">
         <div className="relative h-full flex flex-col" style={{ userSelect: isResizing.left ? 'none' : 'auto' }}>
           {!leftHidden && (
             <>
@@ -2236,46 +2243,16 @@ function ReactGlobeExampleInner() {
                 <div ref={leftSidebarContentRef} className="flex-1 overflow-y-auto relative flex flex-col">
                   {mode !== 'ideologram' && renderDatasetSelector()}
                   {/* Unified Dataset/Country Search */}
-                  {mode !== 'ideologram' && (
-                  <div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20 mb-4">
-                    <h3 className="text-sm font-bold text-neon-blue mb-2">Dataset Search</h3>
-                    <div className="flex mb-2">
-                      <input
-                        className="flex-1 p-2 rounded bg-gray-800 text-white"
-                        placeholder="Type category like GDP or Country/Region"
-                        value={datasetQuery}
-                        onChange={e => setDatasetQuery(e.target.value)}
-                      />
-                      <button
-                        onClick={handleSearch}
-                        className="ml-2 px-3 py-1 bg-neon-blue rounded text-black"
-                      >Go</button>
-                    </div>
-                    {datasetSearchResults.length > 0 ? (
-                      <ul className="max-h-32 overflow-auto text-sm text-white">
-                        {datasetSearchResults.map(ind => (
-                          <li key={ind.id} className="flex justify-between items-center py-1 border-b border-gray-700">
-                            <span>{ind.name}</span>
-                            <button className="ml-2 px-2 py-1 bg-neon-blue rounded text-black text-xs" onClick={() => handleProcessDataset(ind.id)}>
-                              Process Dataset
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : countryList.length > 0 ? (
-                      <ul className="max-h-32 overflow-auto text-sm text-white">
-                        {countryList.map(c => (
-                          <li key={c.id} className="flex justify-between items-center py-1 border-b border-gray-700">
-                            <span>{c.name}</span>
-                            <button className="ml-2 px-2 py-1 bg-neon-purple rounded text-black text-xs" onClick={() => setSelectedRegion(c.id)}>
-                              Select
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                  )}
+                  <DatasetSearchPanel
+                    mode={mode}
+                    datasetQuery={datasetQuery}
+                    setDatasetQuery={setDatasetQuery}
+                    onSearch={handleSearch}
+                    datasetSearchResults={datasetSearchResults}
+                    countryList={countryList}
+                    onProcessDataset={handleProcessDataset}
+                    onSelectRegion={setSelectedRegion}
+                  />
                   {mode === 'ideologram' && (
                     <SidebarFilesPanel
                       user={user}
@@ -2711,247 +2688,42 @@ function ReactGlobeExampleInner() {
 
               <ChatIntegrationInfo />
 
-              {/* Avatar and Worldview Assessment Score Display */}
               {user && (
-                <div className="p-4 rounded-lg border border-neon-blue/50 bg-gradient-to-r from-blue-900/20 to-purple-900/20">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                        {user.email.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <div className="text-lg font-medium text-white">{user.email}</div>
-                        <div className="text-sm text-gray-400">Worldview Assessment</div>
-                      </div>
-                    </div>
-                    {assessmentHistory.length > 0 && (
-                      <div className="text-right">
-                        <div className="bg-gradient-to-r from-green-500 to-blue-500 text-white text-sm px-3 py-2 rounded-full border border-white shadow-sm">
-                          {(() => {
-                            const weightedScores = computeWeightedAverage(assessmentHistory);
-                            if (weightedScores && Object.keys(weightedScores).length > 0) {
-                              const avgScore = Object.values(weightedScores).reduce((sum, data) => sum + data.score, 0) / Object.keys(weightedScores).length;
-                              return `${Math.round(avgScore * 100)}%`;
-                            }
-                            return 'N/A';
-                          })()}
-                        </div>
-                        <div className="text-xs text-gray-400 mt-1">Overall Score</div>
-                      </div>
-                    )}
-                  </div>
-                  {assessmentHistory.length > 0 && (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
-                      {(() => {
-                        const weightedScores = computeWeightedAverage(assessmentHistory);
-                        if (weightedScores && Object.keys(weightedScores).length > 0) {
-                          return Object.entries(weightedScores).map(([dimension, data]) => (
-                            <div key={dimension} className="text-center p-2 bg-gray-800/50 rounded border border-gray-700">
-                              <div className="text-sm font-medium text-gray-300 capitalize">{dimension.replace(/_/g, ' ')}</div>
-                              <div className="text-lg font-bold text-neon-blue">{Math.round(data.score * 100)}%</div>
-                              <div className="text-xs text-gray-400">Confidence: {Math.round(data.confidence * 100)}%</div>
-                            </div>
-                          ));
-                        }
-                        return null;
-                      })()}
-                    </div>
-                  )}
-                  {assessmentHistory.length === 0 && (
-                    <div className="text-center py-4">
-                      <div className="text-gray-400 mb-2">No worldview assessment completed yet</div>
-                      <button 
-                        onClick={() => setWorldviewQuizOpen(true)}
-                        className="px-4 py-2 bg-neon-blue text-black rounded hover:bg-blue-400 transition-colors"
-                      >
-                        Take Worldview Assessment
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <WorldviewPanel
+                  user={user}
+                  assessmentHistory={assessmentHistory}
+                  computeWeightedAverage={computeWeightedAverage}
+                  setWorldviewQuizOpen={setWorldviewQuizOpen}
+                />
               )}
 
-              {/* Worldview Assessment Score Display */}
-              <div className="p-4 rounded-lg border border-neon-blue/50 bg-gradient-to-r from-blue-900/20 to-purple-900/20">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-semibold text-neon-blue">🌍 Worldview Assessment</h2>
-                  <button 
-                    onClick={() => setWorldviewQuizOpen(true)}
-                    className="px-3 py-1 bg-neon-blue text-black rounded text-sm hover:bg-blue-400 transition-colors"
-                  >
-                    {assessmentHistory.length > 0 ? 'Take Assessment' : 'Start Assessment'}
-                  </button>
-                </div>
-                
-                {/* Large Avatar Display */}
-                {user && (
-                  <div className="flex justify-center mb-4">
-                    <div className="relative">
-                      <img 
-                        src={user.avatarUrl || `https://api.dicebear.com/5.x/pixel-art/svg?seed=${encodeURIComponent(user.email)}`}
-                        alt="User Avatar" 
-                        className="w-24 h-24 rounded-full border-4 border-neon-blue/50 shadow-lg"
-                      />
-                      {/* Worldview Assessment Score Badge on Large Avatar */}
-                      {assessmentHistory.length > 0 && (
-                        <div className="absolute -top-3 -right-3 bg-gradient-to-r from-green-500 to-blue-500 text-white text-sm px-3 py-1 rounded-full border-2 border-white shadow-lg">
-                          {(() => {
-                            const weightedScores = computeWeightedAverage(assessmentHistory);
-                            if (weightedScores && Object.keys(weightedScores).length > 0) {
-                              const avgScore = Object.values(weightedScores).reduce((sum, data) => sum + data.score, 0) / Object.keys(weightedScores).length;
-                              return `${Math.round(avgScore * 100)}%`;
-                            }
-                            return 'N/A';
-                          })()}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {assessmentHistory.length > 0 ? (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {(() => {
-                        const weightedScores = computeWeightedAverage(assessmentHistory);
-                        if (weightedScores && Object.keys(weightedScores).length > 0) {
-                          return Object.entries(weightedScores).map(([dimension, data]) => (
-                            <div key={dimension} className="p-3 bg-gray-800/60 rounded border border-gray-600">
-                              <div className="flex justify-between items-center mb-2">
-                                <span className="text-sm font-semibold capitalize text-gray-200">
-                                  {dimension.replace(/_/g, ' ')}
-                                </span>
-                                <span className="text-xs text-gray-400">
-                                  {Math.round(data.score * 100)}%
-                                </span>
-                              </div>
-                              <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
-                                <div 
-                                  className={`h-2 rounded-full ${data.score >= 0 ? 'bg-gradient-to-r from-green-500 to-blue-500' : 'bg-gradient-to-r from-orange-500 to-red-500'}`}
-                                  style={{ width: `${Math.abs(data.score) * 100}%` }}
-                                ></div>
-                              </div>
-                              <div className="text-xs text-gray-400">
-                                {data.assessmentCount} assessments • Last: {new Date(data.lastAssessment).toLocaleDateString()}
-                              </div>
-                            </div>
-                          ));
-                        }
-                        return null;
-                      })()}
-                    </div>
-                    {(() => {
-                      const weightedScores = computeWeightedAverage(assessmentHistory);
-                      if (weightedScores && Object.keys(weightedScores).length > 0) {
-                        const avgScore = Object.values(weightedScores).reduce((sum, data) => sum + data.score, 0) / Object.keys(weightedScores).length;
-                        const totalAssessments = Object.values(weightedScores).reduce((sum, data) => sum + data.assessmentCount, 0);
-                        return (
-                          <div className="mt-3 pt-3 border-t border-gray-600">
-                            <div className="flex justify-between items-center text-sm">
-                              <span className="text-gray-300">Overall Score:</span>
-                              <span className="text-neon-blue font-semibold">{Math.round(avgScore * 100)}%</span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs text-gray-400">
-                              <span>Total Assessments: {totalAssessments}</span>
-                              <span>Dimensions: {Object.keys(weightedScores).length}</span>
-                            </div>
-                          </div>
-                        );
-                      }
-                      return null;
-                    })()}
-                  </>
-                ) : (
-                  <div className="text-center text-gray-400 py-6">
-                    <div className="text-4xl mb-2">🧠</div>
-                    <p className="text-sm mb-3">Take your first worldview assessment to discover your intellectual profile</p>
-                    <p className="text-xs text-gray-500">Assess your knowledge across multiple dimensions including economics, philosophy, science, psychology, and history</p>
-                  </div>
-                )}
-              </div>
+              <WorldviewPanel
+                user={user}
+                assessmentHistory={assessmentHistory}
+                computeWeightedAverage={computeWeightedAverage}
+                setWorldviewQuizOpen={setWorldviewQuizOpen}
+              />
 
-              {/* Read books list + enrichment */}
-              <div className="p-4 rounded-lg border border-gray-700 bg-gray-900/40">
-                <h2 className="text-lg font-semibold mb-2">Read books</h2>
-                <p className="text-sm text-gray-400">Showing books detected as read. Only read and rated books are used by default in the compute.</p>
-                <div className="mt-2 flex gap-4 flex-wrap text-sm">
-                  <span>Total loaded: {ideoBooks.length}</span>
-                  <span className="text-green-400">Read: {ideoBooks.filter(b => b.isRead).length}</span>
-                  <span className="text-blue-400">To-read: {ideoBooks.filter(b => !b.isRead).length}</span>
-                  <span className="text-yellow-400">Rated: {ideoBooks.filter(b => b.isRead && b.rating > 0).length}</span>
-                </div>
-                <div className="mt-2 max-h-64 overflow-auto border border-gray-700 rounded p-2">
-                  {ideoBooks.filter(b => b.isRead).length === 0 ? (
-                    <div className="text-gray-400 text-sm">No read books detected yet. Upload a CSV above.</div>
-                  ) : (
-                    <ul className="list-none m-0 p-0 text-sm">
-                      {ideoBooks.filter(b => b.isRead).slice(0, 200).map((b, i) => {
+              <ReadBooksPanel
+                books={ideoBooks}
+                enrichedMap={ideoEnrichedMap}
+                enrichingMap={ideoEnriching}
+                ideoLoading={ideoLoading}
+                ideoError={ideoError}
+                onEnrichOne={async (b) => {
                         const key = `${b.title}::${b.author || ''}`;
-                        const info = ideoEnrichedMap[key];
-                        const isEnriching = !!ideoEnriching[key];
-                        return (
-                        <li key={`${b.title}-${i}`} className="py-1 border-b border-gray-800">
-                          <div className="flex items-baseline gap-2 flex-wrap">
-                            <strong className="mr-2">{b.title}</strong>
-                            {b.author && <span className="text-gray-400">by {b.author}</span>}
-                            {b.rating != null && <span className="ml-auto">⭐ {b.rating}</span>}
-                          </div>
-                          <div className="text-xs text-gray-400 flex gap-3 flex-wrap">
-                            {b.dateRead && <span>Date read: {b.dateRead}</span>}
-                            {!!(b.shelves?.length) && <span>Shelves: {b.shelves.slice(0,4).join(', ')}{b.shelves.length>4?'…':''}</span>}
-                          </div>
-                          {!info && (
-                            <div className="mt-1">
-                              <button className="px-2 py-0.5 bg-gray-700 rounded text-[11px] disabled:opacity-50" disabled={isEnriching} onClick={async () => {
                                 setIdeoEnriching(prev => ({ ...prev, [key]: true })); setIdeoError('');
                                 try {
                                   const r = await enhancedEnrichBook(b);
                                   if (r) {
-                                    const item = { 
-                                      key, 
-                                      meta: r.metadata, 
-                                      axes: r.inferredAxes || {},
-                                      topics: r.topics || [],
-                                      enrichmentQuality: r.enrichmentQuality
-                                    };
+                      const item = { key, meta: r.metadata, axes: r.inferredAxes || {}, topics: r.topics || [], enrichmentQuality: r.enrichmentQuality };
                                     setIdeoEnrichedMap(prev => ({ ...prev, [key]: item }));
                                     await persistEnriched([item]);
                                   }
                                 } catch { setIdeoError('Enhanced enrichment failed'); }
                                 finally { setIdeoEnriching(prev => ({ ...prev, [key]: false })); }
-                              }}>{isEnriching ? 'Enriching…' : 'Enrich this'}</button>
-                            </div>
-                          )}
-                          {info && (
-                            <div className="text-[11px] text-gray-300 mt-1">
-                              {(() => {
-                                const topics = Array.isArray(info.meta?.topics)
-                                  ? info.meta.topics
-                                  : (Array.isArray(info.meta?.mainSubjects)
-                                      ? info.meta.mainSubjects
-                                      : (Array.isArray(info.meta?.subjects) ? info.meta.subjects : []));
-                                return topics.length > 0 ? (
-                                  <div>Topics: {topics.slice(0,6).join(', ')}{topics.length>6?'…':''}</div>
-                                ) : null;
-                              })()}
-                              <div>
-                                econ_lr: {Math.round(((info.axes?.econ_lr||0)*100))}% · cult_libcon: {Math.round(((info.axes?.cult_libcon||0)*100))}% · auth_lib: {Math.round(((info.axes?.auth_lib||0)*100))}% · global_local: {Math.round(((info.axes?.global_local||0)*100))}% · tech_prog: {Math.round(((info.axes?.tech_prog||0)*100))}% · epistemic_rat: {Math.round(((info.axes?.epistemic_rat||0)*100))}%
-                              </div>
-                              <button 
-                                className="mt-1 px-2 py-0.5 bg-blue-600 rounded text-[10px] hover:bg-blue-700"
-                                onClick={() => setEnrichmentDetail({ key, book: b, currentInfo: info })}
-                              >
-                                View Details
-                              </button>
-                            </div>
-                          )}
-                        </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-                <div className="mt-2 flex gap-2 items-center">
-                  <button className="px-3 py-1 bg-gray-700 rounded disabled:opacity-50" disabled={ideoLoading} onClick={async () => {
+                }}
+                onEnrichTop20={async () => {
                     const read = ideoBooks.filter(b => b.isRead).slice(0,20);
                     setIdeoLoading(true); setIdeoError('');
                     try {
@@ -2961,13 +2733,7 @@ function ReactGlobeExampleInner() {
                           const r = await enhancedEnrichBook(b);
                           const key = `${b.title}::${b.author || ''}`;
                           if (r) {
-                            const item = { 
-                              key, 
-                              meta: r.metadata, 
-                              axes: r.inferredAxes || {},
-                              topics: r.topics || [],
-                              enrichmentQuality: r.enrichmentQuality
-                            };
+                          const item = { key, meta: r.metadata, axes: r.inferredAxes || {}, topics: r.topics || [], enrichmentQuality: r.enrichmentQuality };
                             items.push(item);
                             setIdeoEnrichedMap(prev => ({ ...prev, [key]: item }));
                           }
@@ -2977,79 +2743,23 @@ function ReactGlobeExampleInner() {
                       if (items.length) await persistEnriched(items);
                     } catch (err) { setIdeoError('Enrichment failed'); }
                     finally { setIdeoLoading(false); }
-                  }}>Enrich top 20 via Open Library</button>
-                  
-                  <button className="px-3 py-1 bg-purple-700 rounded disabled:opacity-50" disabled={ideoLoading} onClick={() => setWorldviewQuizOpen(true)}>
-                    🌍 Worldview Assessment
-                  </button>
-                  
-                  {/* Current Worldview Scores Display */}
-                  <div className="ml-4 p-2 bg-gray-800 rounded border border-gray-600">
-                    <div className="text-xs text-gray-400 mb-1">Weighted Worldview Scores</div>
-                    <div className="flex gap-2">
-                      {(() => {
-                        const weightedScores = computeWeightedAverage(assessmentHistory) || 
-                          computeWorldviewScore(ideoBooks, worldviewResponses, userCredentials, selfAssessment);
-                        return Object.entries(weightedScores).map(([dimension, data]) => (
-                          <div key={dimension} className="text-center">
-                            <div className="text-xs font-semibold capitalize">{dimension.split('_')[0]}</div>
-                            <div className="text-xs text-gray-300">
-                              {Math.round((data.score || data.score) * 100)}%
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {assessmentHistory.length > 0 ? 
-                                `${assessmentHistory.length} assessments` : 
-                                `${Math.round((data.overallConfidence || data.overallConfidence) * 100)}% conf`
-                              }
-                            </div>
-                          </div>
-                        ));
-                      })()}
-                    </div>
-                  </div>
-                  
-                  <button className="px-3 py-1 bg-gray-700 rounded disabled:opacity-50" disabled={ideoLoading} onClick={async () => {
+                }}
+                onOpenWorldview={() => setWorldviewQuizOpen(true)}
+                weightedScores={(computeWeightedAverage(assessmentHistory) || computeWorldviewScore(ideoBooks, worldviewResponses, userCredentials, selfAssessment))}
+                onEnrichWikidata={async () => {
                     const read = ideoBooks.filter(b => b.isRead).slice(0,20);
                     setIdeoLoading(true); setIdeoError('');
                     try {
                       const items = [];
                       for (const b of read) {
                         try {
-                          console.log('Attempting Wikidata enrichment for:', b.title, b.author);
-                          
-                          // Try multiple search strategies for better Wikidata matching
-                          let r = null;
-                          const searchStrategies = [
-                            // Strategy 1: Full title + author
-                            `${b.title} ${b.author || ''}`,
-                            // Strategy 2: Just title
-                            b.title,
-                            // Strategy 3: Clean title (remove series info)
-                            b.title.replace(/\([^)]*\)/g, '').replace(/[#\d]+/g, '').trim(),
-                            // Strategy 4: Title + author without series
-                            `${b.title.replace(/\([^)]*\)/g, '').replace(/[#\d]+/g, '').trim()} ${b.author || ''}`.trim()
-                          ];
-                          
-                          // Use our enhanced enrichment function
-                          r = await enhancedEnrichBook(b);
-                          if (r) {
-                            console.log('Enhanced enrichment successful for:', b.title, 'Topics:', r.topics.length, 'Axes:', Object.keys(r.inferredAxes));
-                          }
-                          
+                        let r = await enhancedEnrichBook(b);
                           const key = `${b.title}::${b.author || ''}`;
                           if (r) {
-                            // Add source metadata to indicate this came from Wikidata
-                            const enrichedMeta = {
-                              ...r.metadata,
-                              sources: {
-                                wikidata: { qid: r.metadata.qid }
-                              }
-                            };
+                          const enrichedMeta = { ...r.metadata, sources: { wikidata: { qid: r.metadata.qid } } };
                             items.push({ key, meta: enrichedMeta, axes: r.inferredAxes || {} });
                             setIdeoEnrichedMap(prev => ({ ...prev, [key]: { meta: enrichedMeta, axes: r.inferredAxes || {} } }));
                           } else {
-                            console.log('Wikidata enrichment failed for all strategies:', b.title);
-                            // Wikidata enrichment failed, try Open Library as fallback
                             const fallback = await enrichBook(b);
                             if (fallback) {
                               items.push({ key, meta: fallback.metadata, axes: fallback.inferredAxes || {} });
@@ -3058,41 +2768,18 @@ function ReactGlobeExampleInner() {
                           }
                           await new Promise(r => setTimeout(r, 250));
                         } catch (err) {
-                          console.warn('Wikidata enrichment failed for:', b.title, err);
-                          // Try Open Library as fallback on error
-                          try {
-                            const fallback = await enrichBook(b);
-                            if (fallback) {
-                              const key = `${b.title}::${b.author || ''}`;
-                              items.push({ key, meta: fallback.metadata, axes: fallback.inferredAxes || {} });
-                              setIdeoEnrichedMap(prev => ({ ...prev, [key]: { meta: fallback.metadata, axes: fallback.inferredAxes || {} } }));
-                            }
-                          } catch (fallbackErr) {
-                            console.warn('Fallback enrichment also failed for:', b.title, fallbackErr);
-                          }
+                        try { const fallback = await enrichBook(b); if (fallback) { const key = `${b.title}::${b.author || ''}`; items.push({ key, meta: fallback.metadata, axes: fallback.inferredAxes || {} }); setIdeoEnrichedMap(prev => ({ ...prev, [key]: { meta: fallback.metadata, axes: fallback.inferredAxes || {} } })); } } catch {}
                         }
                       }
                       if (items.length) await persistEnriched(items);
                     } catch (err) { setIdeoError('Wikidata enrichment failed'); }
                     finally { setIdeoLoading(false); }
-                  }}>Enrich via Wikidata</button>
-                  <button className="px-2 py-1 bg-green-600 rounded text-xs disabled:opacity-50" disabled={ideoLoading} onClick={async () => {
+                }}
+                onTestWikidata={async () => {
                     setIdeoError('');
                     try {
-                      // Test Wikidata connectivity step by step
-                      const testBook = { title: 'The Communist Manifesto', author: 'Karl Marx' };
-                      console.log('Testing Wikidata connectivity with:', testBook);
-                      
-                      // Test the search API directly with different search strategies
-                      const searchStrategies = [
-                        'The Communist Manifesto Karl Marx',
-                        'The Communist Manifesto',
-                        'Communist Manifesto Marx',
-                        'Communist Manifesto'
-                      ];
-                      
+                    const searchStrategies = ['The Communist Manifesto Karl Marx','The Communist Manifesto','Communist Manifesto Marx','Communist Manifesto'];
                       for (const searchTerm of searchStrategies) {
-                        console.log('Trying search term:', searchTerm);
                         const searchUrl = new URL('https://www.wikidata.org/w/api.php');
                         searchUrl.searchParams.set('action', 'wbsearchentities');
                         searchUrl.searchParams.set('search', searchTerm);
@@ -3101,36 +2788,23 @@ function ReactGlobeExampleInner() {
                         searchUrl.searchParams.set('origin', '*');
                         searchUrl.searchParams.set('type', 'item');
                         searchUrl.searchParams.set('limit', '5');
-                        
                         const searchRes = await fetch(searchUrl.toString());
                         if (searchRes.ok) {
                           const searchData = await searchRes.json();
-                          console.log('Search results for "' + searchTerm + '":', searchData);
-                          
                           if (searchData?.search?.[0]?.id) {
                             const qid = searchData.search[0].id;
-                            console.log('Found QID:', qid, 'with search term:', searchTerm);
                             setIdeoError('Wikidata test: SUCCESS - QID: ' + qid + ' (term: ' + searchTerm + ')');
                             return;
                           }
                         }
-                        await new Promise(r => setTimeout(r, 100)); // Small delay between searches
+                      await new Promise(r => setTimeout(r, 100));
                       }
-                      
                       setIdeoError('Wikidata test: NO SEARCH RESULTS with any strategy');
-                    } catch (err) {
-                      console.error('Wikidata test error:', err);
-                      setIdeoError('Wikidata test: ERROR - ' + err.message);
-                    }
-                  }}>Test Wikidata</button>
-                  <button className="px-2 py-1 bg-blue-600 rounded text-xs disabled:opacity-50" disabled={ideoLoading} onClick={async () => {
+                  } catch (err) { setIdeoError('Wikidata test: ERROR - ' + err.message); }
+                }}
+                onTestCustomSearch={async () => {
                     setIdeoError('');
                     try {
-                      // Test with a book from your library
-                      const testBook = { title: 'Diaspora', author: 'Greg Egan' };
-                      console.log('Testing custom Wikidata search with:', testBook);
-                      
-                      // Custom Wikidata search implementation
                       const searchTerm = 'Diaspora Greg Egan';
                       const searchUrl = new URL('https://www.wikidata.org/w/api.php');
                       searchUrl.searchParams.set('action', 'wbsearchentities');
@@ -3140,58 +2814,20 @@ function ReactGlobeExampleInner() {
                       searchUrl.searchParams.set('origin', '*');
                       searchUrl.searchParams.set('type', 'item');
                       searchUrl.searchParams.set('limit', '10');
-                      
-                      console.log('Testing custom search URL:', searchUrl.toString());
                       const searchRes = await fetch(searchUrl.toString());
-                      console.log('Custom search response status:', searchRes.status);
-                      
                       if (searchRes.ok) {
                         const searchData = await searchRes.json();
-                        console.log('Custom search response data:', searchData);
-                        
                         if (searchData?.search && searchData.search.length > 0) {
-                          const results = searchData.search.map(item => ({
-                            id: item.id,
-                            title: item.title,
-                            description: item.description,
-                            url: item.url
-                          }));
-                          console.log('Custom search found results:', results);
-                          setIdeoError('Custom test: FOUND ' + results.length + ' results - ' + results[0].id);
+                        setIdeoError('Custom test: FOUND ' + searchData.search.length + ' results - ' + searchData.search[0].id);
                         } else {
                           setIdeoError('Custom test: NO RESULTS in response');
                         }
                       } else {
                         setIdeoError('Custom test: HTTP FAILED - Status: ' + searchRes.status);
                       }
-                    } catch (err) {
-                      console.error('Custom test error:', err);
-                      setIdeoError('Custom test: ERROR - ' + err.message);
-                    }
-                  }}>Test Custom Search</button>
-                  <button className="px-2 py-1 bg-purple-600 rounded text-xs disabled:opacity-50" disabled={ideoLoading} onClick={async () => {
-                    setIdeoError('');
-                    try {
-                      // Test enhanced enrichment with a book from your library
-                      const testBook = { title: 'Diaspora', author: 'Greg Egan' };
-                      console.log('Testing enhanced enrichment with:', testBook);
-                      
-                      const result = await enhancedEnrichBook(testBook);
-                      if (result) {
-                        console.log('Enhanced enrichment result:', result);
-                        setIdeoError(`Enhanced test: SUCCESS - OL: ${result.enrichmentQuality.openLibrary}, WD: ${result.enrichmentQuality.wikidata}, Topics: ${result.topics.length}`);
-                      } else {
-                        setIdeoError('Enhanced test: FAILED - returned null');
-                      }
-                    } catch (err) {
-                      console.error('Enhanced test error:', err);
-                      setIdeoError('Enhanced test: ERROR - ' + err.message);
-                    }
-                  }}>Test Enhanced</button>
-                  {ideoLoading && <span className="text-xs text-gray-400">Parsing…</span>}
-                  {!!ideoError && <span className="text-xs text-neon-red">{ideoError}</span>}
-                </div>
-              </div>
+                  } catch (err) { setIdeoError('Custom test: ERROR - ' + err.message); }
+                }}
+              />
 
               {/* EPUB/Text Analyze */}
               <TextCompressionPanel
@@ -4292,74 +3928,7 @@ function ReactGlobeExampleInner() {
                   –
                 </span>
               </div>
-              <div className="p-6 space-y-6">
-                {[
-                  { label: 'I. Quantum Gravity Theory', color: 'neon-purple', progress: 40 },
-                  { label: 'II. Genomic Decryption', color: 'neon-orange', progress: 65 },
-                  { label: 'III. Fusion Ignition', color: 'neon-red', progress: 80 },
-                  { label: 'IV. Neural Singularity', color: 'neon-green', progress: 25 },
-                ].map((quest, idx) => (
-                  <motion.div
-                    key={idx}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: idx * 0.2 }}
-                    className={`group relative p-4 rounded-lg border transition-all ${
-                      glowEnabled
-                        ? 'border-neon-purple/20 hover:border-neon-purple/50'
-                        : 'border-gray-600 hover:border-gray-400'
-                    }`}
-                  >
-                    <p className={`text-lg ${glowEnabled ? 'text-neon-blue' : 'text-blue-900'}`}>
-                      <span className={`${glowEnabled ? 'glow-text' : ''}`}>
-                        {quest.label}
-                      </span>
-                    </p>
-                    <div className="h-1 bg-gray-700 rounded-full">
-                      <div
-                        className={`h-full transition-all duration-1000 ${
-                          glowEnabled ? `bg-gradient-to-r from-${quest.color}` : 'bg-gray-500'
-                        }`}
-                        style={{ width: `${quest.progress}%` }}
-                      />
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-              <motion.div className="p-4 bg-gray-900/40 rounded-xl border border-neon-blue/20" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <h4 className="text-xl font-bold text-gray-400">TECHNOLOGY</h4>
-                {/* Example bars */}
-                <div>
-                  <p className={`${glowEnabled ? 'text-neon-purple' : 'text-gray-400'} text-lg mb-2`}>
-                    Kardashev Type: 0.4
-                  </p>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${
-                        glowEnabled
-                          ? 'bg-gradient-to-r from-neon-purple to-purple-800'
-                          : 'bg-gray-500'
-                      }`}
-                      style={{ width: '40%' }}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <p className={`${glowEnabled ? 'text-neon-red' : 'text-gray-400'} text-lg mb-2`}>
-                    Energy: 49GW/day
-                  </p>
-                  <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${
-                        glowEnabled
-                          ? 'bg-gradient-to-r from-neon-red to-red-800'
-                          : 'bg-gray-500'
-                      }`}
-                      style={{ width: '65%' }}
-                    />
-                  </div>
-                </div>
-              </motion.div>
+              <RightSidebarContent glowEnabled={glowEnabled} />
               {/* Resize handle for right sidebar */}
               <div
                 className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-neon-blue/30 z-50"
@@ -4390,38 +3959,12 @@ function ReactGlobeExampleInner() {
 
       {/* Theme Debug removed */}
       
-      {/* Cursor Dot - Only visible in cursor mode */}
-      {cursorMode && (
-        <div 
-          className="fixed w-4 h-4 bg-red-500 rounded-full border-2 border-white shadow-lg z-[9998] pointer-events-none"
-          style={{
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
-            boxShadow: '0 0 10px rgba(255, 0, 0, 0.8)'
-          }}
-        />
-      )}
-      
-      {/* Cursor Info Panel - Only visible in cursor mode */}
-      {cursorMode && (
-        <div className="fixed bottom-4 left-4 bg-black/80 text-white p-3 rounded z-[9999] border border-white/20 max-w-xs">
-          <div className="text-sm font-bold mb-2">🎯 Cursor Mode</div>
-          <div className="text-xs space-y-1">
-            <div>Lat: {cursorPosition.lat.toFixed(2)}°</div>
-            <div>Lng: {cursorPosition.lng.toFixed(2)}°</div>
-            {cursorHoverCountry && (
-              <div className="text-green-400">Hovering: {cursorHoverCountry}</div>
-            )}
-            {cursorCountry && (
-              <div className="text-blue-400">Selected: {cursorCountry}</div>
-            )}
-          </div>
-          <div className="text-xs text-gray-400 mt-2">
-            WASD/Arrows: Move | Enter/Space: Select | ESC: Exit
-          </div>
-        </div>
-      )}
+      <CursorOverlays
+        cursorMode={cursorMode}
+        cursorPosition={cursorPosition}
+        cursorHoverCountry={cursorHoverCountry}
+        cursorCountry={cursorCountry}
+      />
 
       {/* Avatar Rigging System - Main Interface */}
       <div className="fixed bottom-4 right-4 bg-black/90 text-white rounded-lg z-[9999] border border-neon-blue/50 shadow-2xl backdrop-blur-xl">
@@ -4438,6 +3981,28 @@ function ReactGlobeExampleInner() {
         
         {showAvatarRig && (
           <div className="p-4 max-w-md max-h-[80vh] overflow-y-auto">
+            {/* Face Preview */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-gray-300">Face Preview</span>
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-gray-400 flex items-center gap-2">
+                  <input type="checkbox" checked={liveSync} onChange={e => setLiveSync(e.target.checked)} /> Live Sync
+                </label>
+                <label className="text-xs text-gray-400 flex items-center gap-2">
+                  Blend
+                  <input type="range" min="0" max="1" step="0.05" value={liveBlend} onChange={e => setLiveBlend(parseFloat(e.target.value))} />
+                </label>
+              </div>
+            </div>
+            <div className="flex items-center justify-center mb-4 relative">
+              {/* Attempt to load head model; show FacePreview until loaded */}
+              <div style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, display: headLoaded ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <FacePreview faceDriver={faceDriver} />
+              </div>
+              <div style={{ opacity: headLoaded ? 1 : 0 }}>
+                <AvatarHead faceDriver={faceDriver} liveBlend={liveBlend} onLoad={setHeadLoaded} />
+              </div>
+            </div>
             {/* Mode Tabs */}
             <div className="flex space-x-1 mb-4">
               {['pose', 'face', 'animation'].map((mode) => (
@@ -4740,7 +4305,8 @@ function ReactGlobeExampleInner() {
         )}
 
         {/* Enrichment Detail Modal */}
-        {enrichmentDetail && (
+        <EnrichmentDetailModal detail={enrichmentDetail} onClose={() => setEnrichmentDetail(null)} />
+        {false && enrichmentDetail && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-gray-900 border border-gray-700 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
               <div className="flex justify-between items-center p-4 border-b border-gray-700">

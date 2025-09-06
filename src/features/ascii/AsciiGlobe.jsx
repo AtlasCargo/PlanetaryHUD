@@ -36,6 +36,18 @@ export default function AsciiGlobe({
   bordersUrl = '/geo/countries.geojson', // optional; if not present the overlay is skipped
   bordersDecimate = 6,    // sample every N-th vertex to keep perf reasonable
   borderChar = '*',
+  bordersStepDeg = 2,     // densify segments to ~this angular step (deg) along great-circle
+  // Shading
+  shading = true,
+  fillChar = ' ',
+  // Land mask rasterization
+  useLandMask = false,
+  landChar = '#',
+  waterChar = ' ',
+  maskWidth = 720,
+  maskHeight = 360,
+  // Presentation
+  flipHorizontal = true, // flip the final ASCII frame horizontally
   globeScale = 1.0,
 }) {
   const preRef = React.useRef(null);
@@ -43,7 +55,8 @@ export default function AsciiGlobe({
   const [frame, setFrame] = React.useState('');
   const [charAspect, setCharAspect] = React.useState(charAspectProp);
   const [fontSizePx, setFontSizePx] = React.useState(5);
-  const [borders, setBorders] = React.useState(null); // Array of polylines: number[][][] where each polyline is [[lon,lat], ...]
+  const [borders, setBorders] = React.useState(null); // Array<Polyline>, Polyline = Array<[lon,lat]>
+  const [mask, setMask] = React.useState(null); // { w, h, data }
   
   // Normalize light direction (world space)
   const normLight = React.useMemo(() => {
@@ -72,12 +85,12 @@ export default function AsciiGlobe({
     const rotY = (p) => ({ x: p.x * cosR + p.z * sinR, y: p.y, z: -p.x * sinR + p.z * cosR });
     const toGrid = (p) => {
       if (p.z <= 0) return null; // backface
-      const sx = p.x * g; // scale screen mapping identically
-      const sy = p.y * g;
-      const rr2 = sx * sx + sy * sy;
+      // Inside unit circle in orthographic projection (independent of scale)
+      const rr2 = p.x * p.x + p.y * p.y;
       if (rr2 > 1) return null;
-      const colF = ((sx + 1) * 0.5) * cols;
-      const rNorm = (-sy * charAspect + 1) * 0.5;
+      // Map to screen cell indices using the same forward equations (invert projection)
+      const colF = (((p.x * g) + 1) * 0.5) * cols; // U = p.x * g
+      const rNorm = (1 - (p.y * g * charAspect)) * 0.5; // V = -p.y * charAspect * g
       const rowF = rNorm * rows;
       const c = Math.max(0, Math.min(cols - 1, Math.floor(colF)));
       const r = Math.max(0, Math.min(rows - 1, Math.floor(rowF)));
@@ -144,11 +157,28 @@ export default function AsciiGlobe({
         const ry = ny;
         const rz = -nx * sinR + nz * cosR;
 
-        // Lambert shading in world space
-        const ndotl = clamp(rx * normLight.x + ry * normLight.y + rz * normLight.z, 0, 1);
-        const shadeIdx = Math.floor(ndotl * rampLen);
-        let ch = ramp[shadeIdx];
-        if (borderMask && borderMask[r * cols + c]) ch = borderChar;
+        // Shading
+        let ch;
+        if (shading) {
+          const ndotl = clamp(rx * normLight.x + ry * normLight.y + rz * normLight.z, 0, 1);
+          const shadeIdx = Math.floor(ndotl * rampLen);
+          ch = ramp[shadeIdx];
+        } else {
+          ch = fillChar;
+        }
+
+        // Land/water sampling from raster mask for coherence
+        if (mask) {
+          const latDeg = (Math.asin(clamp(ry, -1, 1)) * 180) / Math.PI;
+          const lonDeg = (Math.atan2(rz, rx) * 180) / Math.PI;
+          let xS = Math.floor(((lonDeg + 180) / 360) * mask.w);
+          let yS = Math.floor(((90 - latDeg) / 180) * mask.h);
+          if (xS < 0) xS = 0; else if (xS >= mask.w) xS = mask.w - 1;
+          if (yS < 0) yS = 0; else if (yS >= mask.h) yS = mask.h - 1;
+          const idxM = (yS * mask.w + xS) * 4;
+          const isLand = mask.data[idxM] > 127; // red channel threshold
+          ch = isLand ? landChar : waterChar;
+        }
 
         if (showGrid) {
           // Convert to spherical (after rotation)
@@ -165,12 +195,18 @@ export default function AsciiGlobe({
           else if (nearParallel) ch = '-';
         }
 
+        // Draw borders last so they remain visible over grid/shading
+        if (borderMask && borderMask[r * cols + c]) ch = borderChar;
+
         line += ch;
       }
       lines[r] = line;
     }
-    return lines.join('\n');
-  }, [rows, cols, ramp, normLight, showGrid, gridEveryDeg, charAspect, showBorders, borders, borderChar, globeScale]);
+    // Optionally flip each line horizontally to correct E/W mirroring
+    const output = flipHorizontal ? lines.map(s => s.split('')
+      .reverse().join('')) : lines;
+    return output.join('\n');
+  }, [rows, cols, ramp, normLight, showGrid, gridEveryDeg, charAspect, showBorders, borders, borderChar, globeScale, shading, fillChar, mask, landChar, waterChar, flipHorizontal]);
 
   // Auto-measure character aspect ratio to keep the globe circular and centered.
   React.useLayoutEffect(() => {
@@ -266,23 +302,66 @@ export default function AsciiGlobe({
         if (cancelled || !json) return;
         const polys = [];
         const feats = Array.isArray(json?.features) ? json.features : [];
+        // Helper conversions for densification using great-circle slerp
+        const toVec = (lon, lat) => {
+          const lo = (lon * Math.PI) / 180; const la = (lat * Math.PI) / 180;
+          const cl = Math.cos(la);
+          return [cl * Math.cos(lo), Math.sin(la), cl * Math.sin(lo)];
+        };
+        const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+        const norm = (v) => { const L = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0]/L, v[1]/L, v[2]/L]; };
+        const slerp = (a, b, t) => {
+          let cosO = Math.max(-1, Math.min(1, dot(a, b)));
+          let omega = Math.acos(cosO);
+          if (omega < 1e-5) return a.slice();
+          const sinO = Math.sin(omega);
+          const s0 = Math.sin((1 - t) * omega) / sinO;
+          const s1 = Math.sin(t * omega) / sinO;
+          return norm([a[0]*s0 + b[0]*s1, a[1]*s0 + b[1]*s1, a[2]*s0 + b[2]*s1]);
+        };
+        const toLonLat = (v) => {
+          const la = Math.asin(Math.max(-1, Math.min(1, v[1])));
+          const lo = Math.atan2(v[2], v[0]);
+          return [ (lo*180)/Math.PI, (la*180)/Math.PI ];
+        };
+        const maxStep = Math.max(0.5, bordersStepDeg);
+        function densifyRing(ring) {
+          const out = [];
+          if (!Array.isArray(ring) || ring.length < 2) return out;
+          // Decimate first to reduce points
+          const coarse = [];
+          for (let i = 0; i < ring.length; i += Math.max(1, bordersDecimate)) coarse.push(ring[i]);
+          for (let i = 0; i < coarse.length - 1; i++) {
+            const [lon0, lat0] = coarse[i];
+            const [lon1, lat1] = coarse[i+1];
+            const a = toVec(lon0, lat0);
+            const b = toVec(lon1, lat1);
+            let ang = Math.acos(Math.max(-1, Math.min(1, dot(a, b))));
+            const deg = (ang * 180) / Math.PI;
+            const steps = Math.max(1, Math.ceil(deg / maxStep));
+            for (let s = 0; s <= steps; s++) {
+              const t = s / steps;
+              const v = slerp(a, b, t);
+              out.push(toLonLat(v));
+            }
+          }
+          return out;
+        }
         for (const f of feats) {
           const g = f.geometry || {};
-          if (!g) continue;
-          const type = g.type;
-          const coords = g.coordinates;
+          const type = g?.type;
+          const coords = g?.coordinates;
+          if (!type || !coords) continue;
           if (type === 'Polygon') {
             for (const ring of coords) {
-              const poly = [];
-              for (let i = 0; i < ring.length; i += bordersDecimate) poly.push(ring[i]);
-              if (poly.length >= 2) polys.push(poly);
+              const dense = densifyRing(ring);
+              if (dense.length >= 2) polys.push(dense);
             }
           } else if (type === 'MultiPolygon') {
             for (const polyRings of coords) {
               for (const ring of polyRings) {
-                const poly = [];
-                for (let i = 0; i < ring.length; i += bordersDecimate) poly.push(ring[i]);
-                if (poly.length >= 2) polys.push(poly);
+                const dense = densifyRing(ring);
+                if (dense.length >= 2) polys.push(dense);
               }
             }
           }
@@ -291,7 +370,72 @@ export default function AsciiGlobe({
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [showBorders, bordersUrl, bordersDecimate]);
+  }, [showBorders, bordersUrl, bordersDecimate, bordersStepDeg]);
+
+  // Optional: build land mask (filled polygons) for coherent continents
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!useLandMask || !bordersUrl) { setMask(null); return; }
+    (async () => {
+      try {
+        const resp = await fetch(bordersUrl);
+        if (!resp.ok) return;
+        const json = await resp.json();
+        if (cancelled) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = maskWidth; canvas.height = maskHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = '#fff';
+        const toXY = (lon, lat) => {
+          const x = ((lon + 180) / 360) * canvas.width;
+          const y = ((90 - lat) / 180) * canvas.height;
+          return [x, y];
+        };
+        const unwrapRing = (ring) => {
+          if (!Array.isArray(ring) || ring.length === 0) return [];
+          const out = [ring[0].slice()];
+          let prev = ring[0][0];
+          for (let i = 1; i < ring.length; i++) {
+            let lon = ring[i][0];
+            let d = lon - prev;
+            while (d > 180) { lon -= 360; d = lon - prev; }
+            while (d < -180) { lon += 360; d = lon - prev; }
+            out.push([lon, ring[i][1]]);
+            prev = lon;
+          }
+          return out;
+        };
+        const drawPoly = (rings) => {
+          ctx.beginPath();
+          for (const ring of rings) {
+            const unr = unwrapRing(ring);
+            for (const k of [-1, 0, 1]) {
+              for (let i = 0; i < unr.length; i++) {
+                const [x0, y0] = toXY(unr[i][0], unr[i][1]);
+                const x = x0 + k * canvas.width; const y = y0;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+              }
+            }
+          }
+          ctx.fill('nonzero');
+        };
+        const feats = Array.isArray(json?.features) ? json.features : [];
+        for (const f of feats) {
+          const g = f.geometry || {};
+          if (!g || !g.type) continue;
+          if (g.type === 'Polygon') {
+            drawPoly(g.coordinates);
+          } else if (g.type === 'MultiPolygon') {
+            for (const rings of g.coordinates) drawPoly(rings);
+          }
+        }
+        const image = ctx.getImageData(0,0,canvas.width,canvas.height);
+        setMask({ w: canvas.width, h: canvas.height, data: image.data });
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [useLandMask, bordersUrl, maskWidth, maskHeight]);
 
   return (
     <div

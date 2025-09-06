@@ -43,11 +43,13 @@ export default function BottomHud({
         className="resize-handle-vertical"
         style={{
           position: 'absolute',
-          top: '-6px',
+          top: '-8px',
           left: 0,
           right: 0,
-          height: '12px',
-          cursor: 'ns-resize'
+          height: '16px',
+          cursor: 'ns-resize',
+          zIndex: 60,
+          pointerEvents: 'auto'
         }}
         onMouseDown={onStartResize}
       />
