@@ -7,12 +7,13 @@ export default function BottomHud({
   sidebarWidths,
   onOpenSettings,
   onOpenFinancial,
-  onStartResize
+  onStartResize,
+  heightVh = 15
 }) {
   return (
     <div
       style={{
-        height: `${Math.min(60, 15)}vh`,
+        height: `${Math.min(60, heightVh)}vh`,
         minHeight: '30px',
         left: !leftHidden ? `${sidebarWidths.left}vw` : '0',
         right: !rightHidden ? `${sidebarWidths.right}vw` : '0',
@@ -51,7 +52,11 @@ export default function BottomHud({
           zIndex: 60,
           pointerEvents: 'auto'
         }}
-        onMouseDown={onStartResize}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onStartResize && onStartResize(e);
+        }}
       />
     </div>
   );

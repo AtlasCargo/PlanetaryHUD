@@ -22,13 +22,14 @@ export default function TopHud({
         minHeight: warRoomMode ? '80px' : '40px',
         left: !leftHidden ? `${sidebarWidths.left}vw` : '0',
         right: !rightHidden ? `${sidebarWidths.right}vw` : '0',
-        margin: '0 5px'
+        margin: '0 5px',
+        zIndex: 60
       }}
       className={`absolute top-0 ${
         glowEnabled
           ? 'bg-gradient-to-b from-neon-blue/10 to-transparent border-b border-neon-blue/50'
           : 'bg-gray-900/50 border-b border-gray-600'
-      } flex flex-col items-center justify-center ${warRoomMode ? 'z-50' : 'z-10'} backdrop-blur-lg rounded-lg transition-all duration-300`}
+      } flex flex-col items-center justify-center ${warRoomMode ? 'z-50' : 'z-30'} backdrop-blur-lg rounded-lg transition-all duration-300`}
     >
       <h1
         onClick={() => { setMode('home'); setShowFinancial(false); setShowGraph(false); setWarRoomMode(false); }}
@@ -60,7 +61,11 @@ export default function TopHud({
           zIndex: 60,
           pointerEvents: 'auto'
         }}
-        onMouseDown={() => setIsResizing({ ...isResizing, top: true })}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsResizing((prev) => ({ ...prev, top: true }));
+        }}
       />
     </div>
   );

@@ -3500,7 +3500,8 @@ function ReactGlobeExampleInner() {
           sidebarWidths={sidebarWidths}
           onOpenSettings={() => setMode('settings')}
           onOpenFinancial={() => setShowFinancial(true)}
-          onStartResize={() => setIsResizing({ ...isResizing, bottom: true })}
+          heightVh={dimensions.bottom}
+          onStartResize={() => setIsResizing((prev) => ({ ...prev, bottom: true }))}
         />
       )}
       {/* LEFT SIDEBAR */}
