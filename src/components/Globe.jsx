@@ -20,7 +20,8 @@ export default function GlobeComponent({
   atmosphereAltitude = 0.15,
   onGlobeReady,
   fpsLimit = 60,
-  showTexture = true
+  showTexture = true,
+  rotationEnabled = false
 }) {
   const containerRef = useRef(null);
   const globeRef = useRef(null);
@@ -34,6 +35,12 @@ export default function GlobeComponent({
   const mouse = useRef(new THREE.Vector2());
   const raycaster = useRef(new THREE.Raycaster());
   const isGlobeReady = useRef(false);
+  const rotationRef = useRef(rotationEnabled);
+
+  // Keep rotation flag in a ref so the render loop reacts to changes
+  React.useEffect(() => {
+    rotationRef.current = !!rotationEnabled;
+  }, [rotationEnabled]);
 
   const onMouseMove = (event) => {
     if (!rendererRef.current || !isGlobeReady.current) return;
@@ -41,6 +48,35 @@ export default function GlobeComponent({
     mouse.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     checkHover(event);
+  };
+
+  const longPressRef = useRef(null);
+  const longPressTimeout = 450;
+
+  const onTouchStart = (e) => {
+    if (!rendererRef.current) return;
+    const t = e.touches[0];
+    const rect = rendererRef.current.domElement.getBoundingClientRect();
+    mouse.current.x = ((t.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.current.y = -((t.clientY - rect.top) / rect.height) * 2 + 1;
+    checkHover({ clientX: t.clientX, clientY: t.clientY });
+    longPressRef.current = setTimeout(() => {
+      // Pin tooltip by emitting a final event at current position
+      checkHover({ clientX: t.clientX, clientY: t.clientY });
+    }, longPressTimeout);
+  };
+
+  const onTouchMove = (e) => {
+    if (!rendererRef.current) return;
+    const t = e.touches[0];
+    const rect = rendererRef.current.domElement.getBoundingClientRect();
+    mouse.current.x = ((t.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.current.y = -((t.clientY - rect.top) / rect.height) * 2 + 1;
+    // Debounced hover: only sample every frame via RAF loop, so here we avoid extra work
+  };
+
+  const onTouchEnd = () => {
+    if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; }
   };
 
   const checkHover = (event) => {
@@ -239,7 +275,10 @@ export default function GlobeComponent({
         globe.atmosphereColor(atmosphereColor);
         globe.atmosphereAltitude(atmosphereAltitude);
 
-        renderer.domElement.addEventListener('mousemove', onMouseMove);
+        renderer.domElement.addEventListener('mousemove', onMouseMove, { passive: true });
+        renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: true });
+        renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: true });
+        renderer.domElement.addEventListener('touchend', onTouchEnd, { passive: true });
         isGlobeReady.current = true;
         if (onGlobeReady) onGlobeReady();
 
@@ -317,7 +356,7 @@ export default function GlobeComponent({
       animationFrameId.current = setInterval(() => {
         controls.update();
         checkHover({ clientX: mouse.current.x, clientY: mouse.current.y });
-        if (globe.rotation) globe.rotation.y += ROTATION_SPEED;
+        if (rotationRef.current && globe.rotation) globe.rotation.y += ROTATION_SPEED;
         renderer.render(scene, camera);
       }, 1000);
 
@@ -332,7 +371,7 @@ export default function GlobeComponent({
         if (deltaTime >= frameInterval) {
           controls.update();
           checkHover({ clientX: mouse.current.x, clientY: mouse.current.y });
-          if (globe.rotation) globe.rotation.y += ROTATION_SPEED;
+          if (rotationRef.current && globe.rotation) globe.rotation.y += ROTATION_SPEED;
           renderer.render(scene, camera);
           lastRender.current = currentTime;
         }
@@ -373,6 +412,9 @@ export default function GlobeComponent({
       renderer.dispose();
       controls.dispose();
       renderer.domElement.removeEventListener('mousemove', onMouseMove);
+      renderer.domElement.removeEventListener('touchstart', onTouchStart);
+      renderer.domElement.removeEventListener('touchmove', onTouchMove);
+      renderer.domElement.removeEventListener('touchend', onTouchEnd);
       if (containerRef.current) {
         containerRef.current.removeChild(renderer.domElement);
       }

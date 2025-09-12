@@ -1,35 +1,84 @@
----
-# Live task registry for coordinating agents. Update via MCP events or manual edits.
-# Fields: id, title, plan, branch, status, owner, focus, locks, depends_on, heartbeat, sha
-
-- id: REF-001
-  title: HUD core refactor
-  plan: docs/plans/refactor.md
-  branch: feature/refactor-hud-core
-  status: in_progress
-  owner: agent:refactor
-  focus:
-    - src/hud/**
-    - src/ui/**
-  locks:
-    - src/hud/core/**
-  depends_on: []
-  heartbeat: ""
-  sha: ""
-
-- id: VOICE-003
-  title: Improve chat audio transcription
-  plan: docs/plans/transcription.md
-  branch: feature/chat-transcription
-  status: pending
-  owner: agent:transcription
-  focus:
-    - src/voice/**
-    - src/chat/**
-  locks:
-    - src/voice/core/**
-  depends_on:
-    - REF-001
-  heartbeat: ""
-  sha: ""
+version: 1
+updated_at: "2025-09-07T00:00:00Z"
+tasks:
+  - id: refactor-6-GlobeScene
+    title: Create GlobeScene wrapper for materials/atmosphere/graticules
+    status: completed
+  - id: refactor-8-route-splitting
+    title: Route-split modes (home/chat/settings/financial/ideologram)
+    status: completed
+  - id: refactor-9-lazy-load
+    title: Lazy-load heavy features (Ideologram, Financial, Settings)
+    status: completed
+  - id: refactor-10-error-boundaries
+    title: Add feature-level ErrorBoundaries around heavy panels
+    status: completed
+  - id: refactor-12-prune-ideologram-state
+    title: Prune unused Ideologram imports/state from ReactGlobeExample.jsx
+    status: completed
+  - id: ideo-1-composer
+    title: Create IdeologramView composer to assemble all Ideologram panels
+    status: completed
+  - id: ideo-2-uploads
+    title: Wire LibraryUploadPanel and ChatHistoryUploadPanel (parse + persist)
+    status: completed
+  - id: ideo-3-enrich
+    title: Integrate ReadBooksPanel with OpenLibrary/Wikidata enrichment flows
+    status: completed
+  - id: ideo-4-text-compress
+    title: Hook TextCompressionPanel with status/results panels and pipeline API
+    status: completed
+  - id: ideo-5-worldview
+    title: Restore Worldview flow: WorldviewPanel + Assessment modal + scores
+    status: completed
+  - id: ideo-6-widget
+    title: Reinstate IdeologramWidget compute block in center column
+    status: completed
+  - id: ideo-7-left-sidebar
+    title: Left sidebar: keep Files panel and SavedScores; reload handlers
+    status: completed
+  - id: ideo-8-routing
+    title: Route: keep /ideologram on Main; lazy-load IdeologramView
+    status: completed
+  - id: ideo-9-errors
+    title: Wrap IdeologramView in ErrorBoundary and guard missing state
+    status: completed
+  - id: ideo-10-docs
+    title: Update docs with restored Ideologram architecture + cursor issue note
+    status: completed
+  - id: docs-1-index-templates
+    title: Create docs index and templates (task, bug, ADR, plan)
+    status: completed
+  - id: mcp-1-events
+    title: Extend MCP client: tasks.todo/* and bugs.* events + locks
+    status: pending
+  - id: mcp-2-fallback
+    title: Implement fallback: context/tasks.yaml and CHANGELOG.log writer
+    status: pending
+  - id: mcp-3-cli
+    title: Add simple CLI: mcp-task (open/close/update, bug report)
+    status: pending
+  - id: mobile-p1-drawers
+    title: Mobile: convert sidebars to drawers with edge openers and swipe
+    status: completed
+  - id: mobile-p1-orientation
+    title: Mobile: portrait orientation prompt with mini-globe preview
+    status: completed
+  - id: mobile-p1-safe-areas
+    title: Mobile: safe-area insets for top/bottom/center
+    status: completed
+  - id: mobile-p1-touch-globe
+    title: Mobile: touch tuning for globe (long-press tooltip, passive)
+    status: completed
+  - id: docs-2-backfill
+    title: Backfill current refactor todos and known bugs into tasks.yaml
+    status: completed
+  - id: docs-3-contrib
+    title: Document contributor workflow in docs/CONTRIBUTING.md
+    status: completed
+bugs:
+  - id: BUG-cursor-overlay-null
+    title: CursorOverlays null crash when cursorMode toggled from gear
+    repro: Toggle cursor mode on in Settings; null cursorPosition -> .lat read
+    status: open
 

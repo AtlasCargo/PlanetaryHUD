@@ -19,6 +19,7 @@ export default function GlobeController({
   onGlobeReady,
   showTexture = true,
   fpsLimit = 60,
+  rotationEnabled = false,
   width = 800,
   height = 800,
 
@@ -100,8 +101,16 @@ export default function GlobeController({
 
   const onHover = useCallback((country, evt) => {
     setHovered(country || null);
-    emitTooltip(country, evt);
+    // Only emit when both target and coordinates exist to avoid 0,0 flashes
+    if (country && evt && typeof evt.clientX === 'number' && typeof evt.clientY === 'number') {
+      emitTooltip(country, evt);
+    } else {
+      eventBus.emit(Events.UiTooltipHide);
+    }
   }, [emitTooltip]);
+
+  // Hide tooltip on unmount to avoid lingering overlay when switching views
+  React.useEffect(() => () => { try { eventBus.emit(Events.UiTooltipHide); } catch {} }, []);
 
   const polygonCapColor = useCallback((d) => {
     if (warRoomMode) return 'rgba(255,255,0,0.2)';
@@ -158,12 +167,14 @@ export default function GlobeController({
 
   return (
     <Globe
+      data-test="globe-container"
       key={`globe-ctrl-${warRoomMode}-${polygonsData.length}-${showTexture}-${fpsLimit}-${activeGlobeDataset}-${selectedPopulationYear || ''}-${selectedLifeExpYear || ''}-${selectedGdpYear || ''}`}
       width={width}
       height={height}
       globeMaterial={globeMaterial}
       backgroundColor="rgba(0,0,0,0)"
       fpsLimit={fpsLimit}
+      rotationEnabled={rotationEnabled}
       polygonsData={polygonsData}
       polygonAltitude={polygonAltitude}
       polygonCapColor={polygonCapColor}

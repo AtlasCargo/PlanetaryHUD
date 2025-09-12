@@ -18,6 +18,7 @@ export default function ChatWindow({
   const [keyInput, setKeyInput] = useState('');
   const [hasKey, setHasKey] = useState(!!storedKey);
   const [showTools, setShowTools] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
   const [rtConnected, setRtConnected] = useState(false);
   const [pttActive, setPttActive] = useState(false);
 
@@ -46,8 +47,8 @@ export default function ChatWindow({
 
   // Voice events
   useEffect(() => {
-    const off1 = eventBus.on(Events.VoiceRealtimeConnected, () => setRtConnected(true));
-    const off2 = eventBus.on(Events.VoiceRealtimeError, () => setRtConnected(false));
+    const off1 = eventBus.on(Events.VoiceRealtimeConnected, () => { setRtConnected(true); setVoiceError(''); });
+    const off2 = eventBus.on(Events.VoiceRealtimeError, (p) => { setRtConnected(false); setVoiceError(p?.error || 'Realtime error'); });
     return () => { off1(); off2(); };
   }, []);
 
@@ -61,11 +62,18 @@ export default function ChatWindow({
         clearRealtimeAudio();
         setRtConnected(false);
       }
-    } catch {}
+    } catch (e) {
+      console.error('Realtime start failed:', e);
+      setVoiceError(String(e?.message || e) || 'Realtime start failed');
+    }
   };
 
   const togglePTT = async () => {
     try {
+      if (!navigator?.mediaDevices || typeof window.MediaRecorder === 'undefined') {
+        setVoiceError('This browser does not support mic recording (MediaRecorder).');
+        return;
+      }
       if (!pttActive) {
         setPttActive(true);
         await startTranscribeRecording();
@@ -73,7 +81,9 @@ export default function ChatWindow({
         setPttActive(false);
         await stopTranscribeAndUpload({ filename: 'audio.webm' });
       }
-    } catch {
+    } catch (e) {
+      console.error('Transcribe error:', e);
+      setVoiceError(String(e?.message || e) || 'Transcribe error');
       setPttActive(false);
     }
   };
@@ -118,6 +128,11 @@ export default function ChatWindow({
             onClick={exportKey}
             className="mb-2 text-sm text-gray-400 hover:text-white self-start"
           >Export API Key</button>
+          {voiceError && (
+            <div className="mb-2 text-xs text-red-400 bg-red-900/30 border border-red-700/50 rounded p-2">
+              {voiceError}
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto space-y-2 flex flex-col">
             {messages.map((msg, idx) => {
               const avatarSrc = msg.role === 'assistant' ? assistantAvatarUrl : userAvatarUrl;

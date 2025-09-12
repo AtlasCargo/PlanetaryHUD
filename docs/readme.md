@@ -61,6 +61,15 @@ For a low‑power, text‑only rendering, open `/ascii`.
 
 See `docs/ascii.md` for details and roadmap.
 
+## Mobile Support (P1)
+
+- Orientation prompt on portrait for globe with rotate or mini‑globe preview.
+- Safe‑area insets for iOS notch (top/bottom/center).
+- Sidebars become drawers on small screens; edge openers provided.
+- Touch tuning: long‑press to pin tooltip, passive listeners, tooltip clamped within center pane below top HUD.
+
+See `docs/project.mdc` and `AGENTS.md` for protocol and current state.
+
 ## Contributing
 
 Contributions are welcome! Please follow these steps:

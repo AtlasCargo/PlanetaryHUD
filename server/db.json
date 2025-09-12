@@ -10854,6 +10854,34 @@
           "updatedAt": null
         }
       }
+    },
+    {
+      "id": "USER_1757331980146_s7nknorf3",
+      "email": "dummy@example.com",
+      "avatarUrl": null,
+      "apiKeyEncrypted": null,
+      "ideologram": {
+        "library": {
+          "books": [],
+          "updatedAt": null
+        },
+        "enriched": {
+          "items": [],
+          "updatedAt": null
+        },
+        "scores": {
+          "entries": [],
+          "updatedAt": null
+        },
+        "assessments": {
+          "entries": [],
+          "updatedAt": null
+        },
+        "chatHistory": {
+          "entries": [],
+          "updatedAt": null
+        }
+      }
     }
   ],
   "datasets": []

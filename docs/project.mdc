@@ -64,7 +64,6 @@ graph TD
 - Performance-critical changes require benchmark validation
 - New visualization features need LOD implementation
 - Texture updates must include fallback versions
-```
 
 ## Version 1.1 (Current)
 **Global Visualization Updates**
@@ -88,5 +87,93 @@ graph TD
 - Added shared event bus at `src/shared/events/eventBus.js` with contracts in `src/shared/events/contracts.js`.
 - Created `docs/refactor-plan.md` to track phased refactor and acceptance checks.
 - Created `docs/deprecation-audit.md` to track candidates for removal.
+- Extracted HUD into feature modules:
+  - UI: `features/ui/{LayoutShell,TopHud,BottomHud,RightSidebarContent,CursorOverlays}`
+  - Globe: `features/globe/GlobeController`
+  - Datasets: `features/datasets/{DatasetContext,DatasetSelector,DatasetControlPanel,DatasetController,DatasetSearchPanel}`
+  - Ideologram: `features/ideologram/{IdeologramPanel,LibraryUploadPanel,ChatHistoryUploadPanel,ChatHistoryAnalysisPanel,ChatIntegrationInfo,CompressionStatusPanel,TextCompressionPanel,CompressionResultsPanel,ReadBooksPanel,WorldviewPanel,EnrichmentDetailModal,SidebarFilesPanel,SidebarScoresPanel,FileTreeList,chatUtils,persist,enrichment,worldview,fileTree,SavedScoresPanel}`
+  - Avatar placeholders: `features/avatar/{FacePreview,AvatarHead}`
+- Removed legacy gated inline blocks in `ReactGlobeExample.jsx` and migrated logic to features.
+- Moved mini utilities out of `ReactGlobeExample.jsx` (chat parser, file tree, enrichment, worldview scoring).
 
 These additions are scaffolding only; no runtime behavior changes.
+
+## Refactor Notes (continued)
+- UI extractions and wiring:
+  - features/ui/SettingsGear (replaced inline settings gear button)
+  - features/ui/SystemStatsPanel and features/ui/SystemStatsCard (stats blocks)
+  - features/ui/DominantSpeciesCard
+  - features/ui/MiniChat and features/ui/miniChatPrompts
+  - features/ui/ModeControlsBar (left header controls)
+  - features/ui/ChatSidebar (chat list)
+  - features/ui/FinancialView (financial mode wrapper)
+  - features/ui/JsonExplorerPanel (JSON explorer wrapper)
+  - features/ui/LeftSidebarContent (left sidebar content aggregator)
+- Views:
+  - features/ui/GraphView (wraps GraphComponent)
+- Datasets:
+  - features/datasets/DatasetYearControls (population/life-expectancy/GDP sliders)
+- Ideologram:
+  - features/ideologram/WorldviewAssessmentModal (modal UI)
+  - features/ideologram/IdeologramView (composer: CSV/chat uploads, enrichment, compression)
+  - CSV Uploads: Goodreads CSV -> parsed via d3-dsv -> updates `ideoBooks` and left preview `library.json`
+  - Chat Uploads: ChatGPT export -> parsed via `parseChatGPTHistory` -> updates `ideoChatHistory`
+  - Enrichment: `enhancedEnrichBook` wired for single and Top 20; left preview `enriched.json` updated
+  - Compression: `TextCompressionPanel` posts to `/api/ideologram/compress` and `/compress/step`; status/result state wired; left preview `compressed.json` refreshed from `/api/ideologram/compressed`
+
+All components linted and hot-reload verified. No functional changes intended beyond modularization.
+
+## Mode Gating Contract
+
+- Home mode (`mode === 'home')`:
+  - Renders globe stack: `features/home/HomeGlobeView` (uses `features/globe/GlobeScene` and `GlobeController`).
+  - Shows `TopHud`, `BottomHud`, `DatasetControllerContainer`, and `ResetGlobeContainer` when globe is ready and not loading.
+  - Tooltip handling via `features/ui/TooltipLayer` and `useHoverTooltip`.
+- Settings mode (`mode === 'settings')`:
+  - `SettingsGearContainer` renders the settings panel inline in the central pane (not full-screen route), maintaining sidebars.
+  - Globe and Bottom HUD are hidden.
+- Avatar mode (`mode === 'avatar')`:
+  - Central pane renders `features/avatar/AvatarRigPanel`.
+  - Globe layer and Bottom HUD are hidden to avoid layout conflicts.
+  - Sidebars may auto-collapse depending on layout state.
+
+This gating prevents UI overlap (e.g., the Reset Globe button floating over non-globe views) and stabilizes the main composer.
+
+## Extracted Containers and Hooks
+
+- Containers
+  - `features/ui/LeftSidebarContainer`, `RightSidebarContainer`, `TopHudContainer`, `BottomHudContainer`
+  - `features/ui/DatasetControllerContainer`, `features/ui/ResetGlobeContainer`
+  - `features/home/HomeGlobeView`, `features/home/GraphViewContainer`
+  - `features/ui/SettingsGearContainer`, `features/globe/GlobeScene`
+- Hooks
+  - `hooks/useOwidBaselines`, `hooks/useDatasetMapping`, `hooks/useHoverTooltip`, `hooks/useCountriesGeoJSON`
+
+## Ideologram Integration
+## Mobile Support (P1)
+
+- Orientation Prompt: shows on home in portrait with rotate/preview options; remembers choice per session.
+- Safe-Area Insets: top HUD, center pane, bottom HUD account for iOS notches via CSS env() variables.
+- Drawers: left/right sidebars convert to mobile drawers on xs/sm with edge openers, overlay-to-close, and swipe gestures.
+- Touch tuning: passive listeners; long-press pins tooltip; globe hover sampling throttled to frame.
+- Tooltips: clamped within center pane and below top HUD.
+
+
+- Composer: `features/ideologram/IdeologramView` assembles CSV upload, ChatGPT history upload, enrichment, and compression.
+- Enrichment: `features/ideologram/enrichment/enhancedEnrichBook.js` (exported via `features/ideologram/enrichment/index.js`).
+- File previews updated in left sidebar (`library.json`, `enriched.json`, `compressed.json`).
+
+## MCP Tasks/Bugs and Fallback
+
+- MCP client: `src/shared/agents/mcpClient.js`
+  - Tasks helpers: `tasks.heartbeat`, `tasks.lock.request`, `tasks.status.update`, `tasks.plan.updated`, `tasks.breaking_change`, `tasks.pr.opened`.
+  - Todos/Bugs helpers: `tasks.todo.open|update|close`, `bugs.open|update|close`, `tasks.linked`, `tasks.note`.
+- Fallback when MCP unavailable:
+  - Mirror to `context/tasks.yaml` and append changes to `context/CHANGELOG.log`.
+  - CLI: `scripts/mcp-task.js` (e.g., `npm run mcp-task -- open-task "Title"`).
+
+## Recent Fixes
+
+- Tooltip occasionally at (0,0): `TooltipLayer` now clamps to last pointer position.
+- Reset Globe button floating in non-home modes: resolved via mode gating above.
+- Known: `CursorOverlays` null `lat` error tracked here for later resolution.

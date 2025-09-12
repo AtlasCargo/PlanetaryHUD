@@ -8,16 +8,20 @@ export default function LeftSidebar({
   onStartResizeLeft,
   children
 }) {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const widthVw = isMobile ? 80 : sidebarWidthVw;
   return (
     <div
       className={`fixed top-0 left-0 h-full z-30 ${
         leftHidden ? '-translate-x-full' : 'translate-x-0'
       } backdrop-blur-lg rounded-r-lg`}
       style={{
-        width: `${sidebarWidthVw}vw`,
+        width: `${widthVw}vw`,
         backgroundColor: 'rgba(0, 0, 0, 0.3)',
         transition: isResizingLeft ? 'none' : 'transform 0.3s ease-in-out'
       }}
+      role="complementary"
+      aria-hidden={leftHidden}
     >
       <div className="relative h-full flex flex-col" style={{ userSelect: isResizingLeft ? 'none' : 'auto' }}>
         {children}

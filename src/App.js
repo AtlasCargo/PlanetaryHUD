@@ -2,18 +2,20 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { UiModeProvider } from './contexts/UiModeContext';
 // Removed global Navbar; using sidebar menu instead
 import ProtectedRoute from './components/ProtectedRoute';
-import ReactGlobeExample from './components/ReactGlobeExample';
+import Main from './components/Main';
 import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
-import Settings from './pages/Settings';
-import IdeologramPage from './pages/IdeologramPage';
+const Settings = React.lazy(() => import('./pages/Settings'));
+const IdeologramPage = React.lazy(() => import('./pages/IdeologramPage'));
+const AvatarRigPage = React.lazy(() => import('./pages/AvatarRigPage'));
 import VoiceDevWidget from './features/voice/VoiceDevWidget';
 import createMcpClient from './shared/agents/mcpClient';
 import AvatarDevWidget from './features/voice/AvatarDevWidget';
-import AsciiGlobePage from './pages/AsciiGlobePage';
+const AsciiGlobePage = React.lazy(() => import('./pages/AsciiGlobePage'));
 import TranscribeDevView from './features/voice/TranscribeDevView';
 import VoiceButtons from './features/voice/VoiceButtons';
 import RealtimeCaptionOverlay from './features/voice/RealtimeCaptionOverlay';
@@ -48,42 +50,70 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <BrowserRouter>
-          {/* Removed global Navbar; sidebar menu icons are used instead */}
-          <ErrorBoundary>
-            <Routes>
-              {/* Public home (globe) view */}
+        <UiModeProvider>
+          <BrowserRouter>
+            {/* Removed global Navbar; sidebar menu icons are used instead */}
+            <ErrorBoundary>
+              <React.Suspense fallback={<div className="p-4 text-gray-400">Loading…</div>}>
+              <Routes>
+                {/* Public home (globe) view */}
+                <Route
+                  path="/"
+                  element={
+                    <ErrorBoundary>
+                      <Main />
+                    </ErrorBoundary>
+                  }
+                />
+                <Route
+                  path="/chat"
+                  element={
+                    <ErrorBoundary>
+                      <Main />
+                    </ErrorBoundary>
+                  }
+                />
+                <Route
+                  path="/financial"
+                  element={
+                    <ErrorBoundary>
+                      <Main />
+                    </ErrorBoundary>
+                  }
+                />
+              {/* Auth routes */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
               <Route
-                path="/"
+                path="/ideologram"
                 element={
                   <ErrorBoundary>
-                    <ReactGlobeExample />
+                    <Main />
                   </ErrorBoundary>
                 }
               />
-            {/* Auth routes */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/ideologram" element={<IdeologramPage />} />
-            <Route path="/ascii" element={<AsciiGlobePage />} />
-            {/* Protected user routes */}
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <Settings />
-                </ProtectedRoute>
-              }
-            />
-            </Routes>
-          </ErrorBoundary>
-        </BrowserRouter>
-        {process.env.REACT_APP_VOICE_DEV_WIDGET === '1' && <VoiceDevWidget />}
-        {process.env.REACT_APP_AVATAR_DEV_WIDGET === '1' && <AvatarDevWidget />}
-        {process.env.REACT_APP_TRANSCRIBE_DEV_VIEW === '1' && <TranscribeDevView />}
-        {process.env.REACT_APP_VOICE_BUTTONS === '1' && <VoiceButtons />}
-        {process.env.REACT_APP_REALTIME_CAPTIONS === '1' && <RealtimeCaptionOverlay />}
-        {process.env.REACT_APP_VOICE_TUNER === '1' && <VoiceTuner />}
+              <Route path="/ascii" element={<AsciiGlobePage />} />
+              <Route path="/avatar-rig" element={<AvatarRigPage />} />
+              {/* Protected user routes */}
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <Settings />
+                  </ProtectedRoute>
+                }
+              />
+              </Routes>
+              </React.Suspense>
+            </ErrorBoundary>
+          </BrowserRouter>
+          {process.env.REACT_APP_VOICE_DEV_WIDGET === '1' && <VoiceDevWidget />}
+          {process.env.REACT_APP_AVATAR_DEV_WIDGET === '1' && <AvatarDevWidget />}
+          {process.env.REACT_APP_TRANSCRIBE_DEV_VIEW === '1' && <TranscribeDevView />}
+          {process.env.REACT_APP_VOICE_BUTTONS === '1' && <VoiceButtons />}
+          {process.env.REACT_APP_REALTIME_CAPTIONS === '1' && <RealtimeCaptionOverlay />}
+          {process.env.REACT_APP_VOICE_TUNER === '1' && <VoiceTuner />}
+        </UiModeProvider>
       </AuthProvider>
     </ThemeProvider>
   );

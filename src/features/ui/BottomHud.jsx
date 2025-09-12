@@ -20,7 +20,7 @@ export default function BottomHud({
         margin: '0 5px',
         bottom: '5px'
       }}
-      className={`fixed z-20 ${
+      className={`fixed z-20 bottom-safe-area ${
         glowEnabled
           ? 'bg-gray-800/30 border-t border-neon-red/50'
           : 'bg-gray-900/50 border-t border-gray-600'

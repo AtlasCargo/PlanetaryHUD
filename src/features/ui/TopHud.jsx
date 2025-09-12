@@ -17,6 +17,7 @@ export default function TopHud({
 }) {
   return (
     <div
+      data-test="top-hud"
       style={{
         height: `${Math.min(dimensionsTop, 30)}vh`,
         minHeight: warRoomMode ? '80px' : '40px',

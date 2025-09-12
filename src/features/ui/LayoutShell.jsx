@@ -20,6 +20,7 @@ export default function LayoutShell({
         right: !rightHidden ? `${rightWidthVw}vw` : '0',
         transition: 'left 0.3s ease-in-out, right 0.3s ease-in-out'
       }}
+      data-test="center-pane"
     >
       {children}
     </div>

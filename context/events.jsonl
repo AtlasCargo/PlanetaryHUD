@@ -1,1 +1,5 @@
+{"topic":"tasks.todo.update","payload":{"id":"mobile-p1-drawers","title":"Convert sidebars to mobile drawers with swipe gestures (xs/sm)","status":"completed"},"timestamp":"2025-09-11T00:00:00Z"}
+{"topic":"tasks.todo.update","payload":{"id":"mobile-p1-orientation","title":"Add portrait orientation modal with mini-globe preview","status":"completed"},"timestamp":"2025-09-11T00:00:00Z"}
+{"topic":"tasks.todo.update","payload":{"id":"mobile-p1-safe-areas","title":"Add safe-area insets (iOS notch) to top/bottom/center","status":"completed"},"timestamp":"2025-09-11T00:00:00Z"}
+{"topic":"tasks.todo.update","payload":{"id":"mobile-p1-touch-globe","title":"Tune touch controls: 1-finger rotate, 2-finger zoom, long-press tooltip","status":"completed"},"timestamp":"2025-09-11T00:00:00Z"}
 

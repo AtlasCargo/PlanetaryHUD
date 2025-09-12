@@ -5,7 +5,7 @@ console.log('🔧 setupProxy.js is loading...');
 module.exports = function (app) {
   console.log('🔧 Setting up proxy middleware...');
   
-  const target = 'http://127.0.0.1:5999';
+  const target = process.env.PORT_API ? `http://127.0.0.1:${process.env.PORT_API}` : 'http://127.0.0.1:5999';
   console.log('🎯 Target backend:', target);
   
   // Test if this function is being called

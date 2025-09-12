@@ -1,3 +1,23 @@
+:root {
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-left: env(safe-area-inset-left);
+  --safe-right: env(safe-area-inset-right);
+}
+
+[data-test="top-hud"] {
+  padding-top: max(0px, var(--safe-top));
+}
+
+[data-test="center-pane"] {
+  padding-left: max(0px, var(--safe-left));
+  padding-right: max(0px, var(--safe-right));
+}
+
+/* Bottom HUD safe-area */
+.bottom-safe-area {
+  padding-bottom: max(0px, var(--safe-bottom));
+}
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

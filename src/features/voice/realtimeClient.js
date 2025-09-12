@@ -105,6 +105,8 @@ export class RealtimeClient {
         let sum = 0; for (let i = 0; i < resampled.length; i++) { const v = resampled[i]; sum += v*v; }
         const rms = Math.sqrt(sum / resampled.length); const level = Math.max(0, Math.min(1, rms*2));
         eventBus.emit(Events.VoiceRealtimeVu, { level });
+        // Feed lipsync from mic audio as well (drives 2D/3D avatar when speaking)
+        try { this.lipsync.onAudioFrame(resampled, this.sampleTarget); } catch {}
         // Encode and send
         const pcm16 = this._floatToPCM16(resampled);
         const b64 = this._toBase64(pcm16.buffer);

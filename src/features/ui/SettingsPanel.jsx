@@ -68,7 +68,7 @@ export default function SettingsPanel({
 
   return (
     <div
-      className={`fixed top-[3.5rem] right-4 w-64 max-w-[90vw] ${
+      className={`fixed top-[3.5rem] right-4 w-[22rem] max-w-[95vw] ${
         glowEnabled ? 'border border-neon-blue/50' : 'border border-gray-600'
       } bg-gray-900/95 rounded-lg shadow-2xl backdrop-blur-xl p-4 z-[99999] ${
         isLiquidGlassActive ? 'liquid-glass-panel' : ''
@@ -112,11 +112,11 @@ export default function SettingsPanel({
           </div>
         </div>
         {user ? (
-          <button onClick={logout} className="px-2 py-1 bg-red-600 text-white rounded">Logout</button>
+          <button onClick={logout} className="px-3 py-1 bg-red-600 text-white rounded whitespace-nowrap">Logout</button>
         ) : (
-          <div className="flex flex-col space-y-2">
-            <button onClick={loginWithGoogle} className={`px-2 py-1 bg-neon-blue text-black rounded ${isLiquidGlassActive ? 'liquid-glass-button' : ''}`}>Continue with Google</button>
-            <button onClick={() => navigate('/login')} className={`px-2 py-1 bg-neon-purple text-black rounded ${isLiquidGlassActive ? 'liquid-glass-button' : ''}`}>Login with Email</button>
+          <div className="flex flex-col space-y-2 w-full">
+            <button onClick={loginWithGoogle} className={`px-3 py-2 bg-neon-blue text-black rounded w-full text-sm ${isLiquidGlassActive ? 'liquid-glass-button' : ''}`}>Continue with Google</button>
+            <button onClick={() => navigate('/login')} className={`px-3 py-2 bg-neon-purple text-black rounded w-full text-sm ${isLiquidGlassActive ? 'liquid-glass-button' : ''}`}>Login with Email</button>
           </div>
         )}
       </div>
@@ -138,7 +138,7 @@ export default function SettingsPanel({
         <div className="space-y-2">
           <span className="text-sm text-neon-blue block">Update Rate</span>
           <div className="flex gap-2">
-            <button onClick={() => setUpdateFPS(1)} className={`flex-1 p-2 rounded-lg ${updateFPS === 1 ? 'bg-neon-blue/20 text-neon-blue' : 'bg-gray-800/40 text-gray-300'}`}>1 FPS</button>
+            <button onClick={() => setUpdateFPS(12)} className={`flex-1 p-2 rounded-lg ${updateFPS === 12 ? 'bg-neon-blue/20 text-neon-blue' : 'bg-gray-800/40 text-gray-300'}`}>12 FPS</button>
             <button onClick={() => setUpdateFPS(24)} className={`flex-1 p-2 rounded-lg ${updateFPS === 24 ? 'bg-neon-blue/20 text-neon-blue' : 'bg-gray-800/40 text-gray-300'}`}>24 FPS</button>
             <button onClick={() => setUpdateFPS(60)} className={`flex-1 p-2 rounded-lg ${updateFPS === 60 ? 'bg-neon-blue/20 text-neon-blue' : 'bg-gray-800/40 text-gray-300'}`}>60 FPS</button>
           </div>

@@ -80,13 +80,23 @@ export function createMcpClient({ url, apiKey, onLog, onOpen } = {}) {
   const notifyBreakingChange = (payload) => send('tasks.breaking_change', payload);
   const notifyPrOpened = (payload) => send('tasks.pr.opened', payload);
 
+  // New: todos and bugs helpers (lightweight contract)
+  const openTodo = (payload) => send('tasks.todo.open', payload);
+  const updateTodo = (payload) => send('tasks.todo.update', payload);
+  const closeTodo = (payload) => send('tasks.todo.close', payload);
+  const openBug = (payload) => send('bugs.open', payload);
+  const updateBug = (payload) => send('bugs.update', payload);
+  const closeBug = (payload) => send('bugs.close', payload);
+  const linkRefs = (payload) => send('tasks.linked', payload);
+  const addNote = (payload) => send('tasks.note', payload);
+
   const disconnect = () => {
     try { unsubscribers.forEach((u) => u && u()); } catch {}
     try { socket && socket.close(); } catch {}
     connected = false;
   };
 
-  return { connect, disconnect, subscribe, send, sendHeartbeat, requestLock, updateStatus, notifyPlanUpdated, notifyBreakingChange, notifyPrOpened };
+  return { connect, disconnect, subscribe, send, sendHeartbeat, requestLock, updateStatus, notifyPlanUpdated, notifyBreakingChange, notifyPrOpened, openTodo, updateTodo, closeTodo, openBug, updateBug, closeBug, linkRefs, addNote };
 }
 
 export default createMcpClient;
